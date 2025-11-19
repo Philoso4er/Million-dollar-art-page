@@ -1,3 +1,4 @@
+// src/components/PixelGrid.tsx
 import React, { useRef, useEffect, useCallback } from 'react';
 import { PixelData } from '../types';
 
@@ -12,122 +13,204 @@ interface PixelGridProps {
 }
 
 const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPixel, onPixelHover }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  // FIX: Initialize useRef with a null value and correct type to avoid an error where an argument is expected but not provided.
-  const animationFrameRef = useRef<number | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const pixelsRef = useRef<Map<number, PixelData>>(pixels); // keep latest map available to animation loop
+  const rafRef = useRef<number | null>(null);
 
-  const draw = useCallback((pulse = 0) => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!ctx || !canvas) return;
+  // keep pixelsRef in sync with incoming prop without forcing re-render
+  useEffect(() => {
+    pixelsRef.current = pixels;
+  }, [pixels]);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Resize canvas to physical pixels (handles devicePixelRatio and CSS scale)
+  const resizeCanvasToDisplaySize = useCallback((canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const displayWidth = Math.round(rect.width);
+    const displayHeight = Math.round(rect.height);
+    const needResize = canvas.width !== Math.round(displayWidth * dpr) || canvas.height !== Math.round(displayHeight * dpr);
 
-    // Draw purchased pixels
-    for (const pixel of pixels.values()) {
+    if (needResize) {
+      canvas.width = Math.round(displayWidth * dpr);
+      canvas.height = Math.round(displayHeight * dpr);
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // scale drawing operations so 1 canvas unit == 1 CSS pixel
+      }
+    } else {
+      // ensure transform still set correctly
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+    }
+  }, []);
+
+  // Draw function: accepts pulse (0..1) for searched highlight
+  const draw = useCallback((ctx: CanvasRenderingContext2D, pulse = 0) => {
+    // clear entire canvas (in CSS pixels)
+    ctx.clearRect(0, 0, GRID_WIDTH, GRID_HEIGHT);
+
+    // Speed: disable smoothing for crisp 1x1 pixel rendering
+    ctx.imageSmoothingEnabled = false;
+
+    // Draw purchased pixels (iterate sparse Map)
+    for (const pixel of pixelsRef.current.values()) {
       const x = pixel.id % GRID_WIDTH;
       const y = Math.floor(pixel.id / GRID_WIDTH);
       ctx.fillStyle = pixel.color;
+      // draw a 1x1 rect (units are CSS pixels because of setTransform)
       ctx.fillRect(x, y, 1, 1);
     }
-    
-    // Draw grid lines for better visibility on empty areas
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.05)";
-    ctx.lineWidth = 0.05;
-    for (let i = 0; i < GRID_WIDTH; i += 50) {
+
+    // Draw grid lines for better visibility - vertical lines every 10 pixels
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < GRID_WIDTH; i += 10) {
         ctx.beginPath();
         ctx.moveTo(i, 0);
         ctx.lineTo(i, GRID_HEIGHT);
         ctx.stroke();
     }
-    for (let i = 0; i < GRID_HEIGHT; i += 50) {
+    // Draw horizontal lines every 10 pixels
+    for (let i = 0; i < GRID_HEIGHT; i += 10) {
         ctx.beginPath();
         ctx.moveTo(0, i);
         ctx.lineTo(GRID_WIDTH, i);
         ctx.stroke();
     }
 
-    // Draw pulsing highlight for searched pixel
-    if (searchedPixel !== null) {
+    // Draw pulsing highlight for searchedPixel (if present)
+    if (searchedPixel !== null && searchedPixel >= 0 && searchedPixel < GRID_WIDTH * GRID_HEIGHT) {
       const x = searchedPixel % GRID_WIDTH;
       const y = Math.floor(searchedPixel / GRID_WIDTH);
-      
-      const sizeOffset = 2 * pulse; // pulse is 0 to 1
-      const alpha = 1 - (0.75 * pulse);
 
-      ctx.strokeStyle = `rgba(255, 255, 0, ${alpha})`; // Pulsing yellow
-      ctx.lineWidth = 0.5 + pulse;
+      // pulse is between 0 and 1; compute size and alpha
+      const sizeOffset = 2 * pulse; // grows a bit
+      const alpha = 1 - Math.min(0.85, 0.75 * pulse);
+
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 220, 0, ${alpha})`;
+      ctx.lineWidth = 0.8 + pulse * 0.8;
+      // draw a rectangle centered on the pixel (a few px larger for visibility)
       ctx.strokeRect(x - 1 - sizeOffset, y - 1 - sizeOffset, 3 + sizeOffset * 2, 3 + sizeOffset * 2);
+      ctx.restore();
     }
-  }, [pixels, searchedPixel]);
+  }, [searchedPixel]);
 
-  // Effect for static draws (when pixel data changes)
+  // Initial static draw and on resize
   useEffect(() => {
-    draw();
-  }, [pixels, draw]);
-  
-  // Effect for animation loop
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    resizeCanvasToDisplaySize(canvas);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // initial draw (no pulse)
+    draw(ctx, 0);
+    // Re-draw on window resize to adjust dpr scaling
+    const handleResize = () => {
+      if (!canvas) return;
+      resizeCanvasToDisplaySize(canvas);
+      const ctx2 = canvas.getContext('2d');
+      if (ctx2) draw(ctx2, 0);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [draw, resizeCanvasToDisplaySize]);
+
+  // Animation loop for pulse when searchedPixel exists
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // If there's no searched pixel, ensure a static draw and cancel animation
     if (searchedPixel === null) {
-      draw(); // Redraw once to clear the highlight
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      draw(ctx, 0);
       return;
     }
 
+    let mounted = true;
     const animate = () => {
-        // Creates a smooth oscillating value between 0 and 1
-        const pulse = Math.abs(Math.sin(Date.now() / 400)); 
-        draw(pulse);
-        animationFrameRef.current = requestAnimationFrame(animate);
+      if (!mounted) return;
+      // Oscillate pulse smoothly between 0 and 1
+      const pulse = Math.abs(Math.sin(Date.now() / 400));
+      draw(ctx, pulse);
+      rafRef.current = requestAnimationFrame(animate);
     };
-    animate();
+    // Start the loop
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(animate);
+    }
 
     return () => {
-        if (animationFrameRef.current) {
-            cancelAnimationFrame(animationFrameRef.current);
-        }
+      mounted = false;
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-}, [searchedPixel, draw]);
+  }, [searchedPixel, draw]);
 
-
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
+  // Helpers for mapping client coords -> canvas coords (in CSS pixels)
+  const clientToCanvasCoords = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    const canvasX = (e.clientX - rect.left) * scaleX;
-    const canvasY = (e.clientY - rect.top) * scaleY;
-
+    const scaleX = GRID_WIDTH / rect.width;
+    const scaleY = GRID_HEIGHT / rect.height;
+    // canvasX/Y in CSS coordinate space matching 0..GRID_WIDTH-1
+    const canvasX = (clientX - rect.left) * scaleX;
+    const canvasY = (clientY - rect.top) * scaleY;
     const x = Math.floor(canvasX);
     const y = Math.floor(canvasY);
+    return { x, y, clientX, clientY };
+  }, []);
 
+  // Click / touch handlers
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    let clientX: number, clientY: number;
+    if ('touches' in e && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ('clientX' in e) {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    } else {
+      return;
+    }
+
+    const { x, y } = clientToCanvasCoords(clientX, clientY);
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
       const pixelId = y * GRID_WIDTH + x;
       onPixelSelect(pixelId);
     }
   };
-  
-  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    let clientX: number, clientY: number;
+    if ('touches' in e && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ('clientX' in e) {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    } else {
+      return;
+    }
 
-    const canvasX = (e.clientX - rect.left) * scaleX;
-    const canvasY = (e.clientY - rect.top) * scaleY;
-
-    const x = Math.floor(canvasX);
-    const y = Math.floor(canvasY);
-    
+    const { x, y } = clientToCanvasCoords(clientX, clientY);
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
       const pixelId = y * GRID_WIDTH + x;
-      onPixelHover(pixelId, e.clientX, e.clientY);
+      onPixelHover(pixelId, clientX, clientY);
     } else {
-      handleMouseLeave();
+      onPixelHover(null, 0, 0);
     }
   };
 
@@ -143,7 +226,11 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
       onClick={handleClick}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onTouchStart={handleClick}
+      onTouchMove={handleMouseMove}
       className="cursor-crosshair w-[1000px] h-[1000px] image-rendering-pixelated"
+      role="img"
+      aria-label="Million pixel grid"
     />
   );
 };
