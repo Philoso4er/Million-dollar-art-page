@@ -25,6 +25,14 @@ interface SearchResult {
   data: PixelData | null;
 }
 
+const tryGetSession = (key: string, fallback: string) => {
+  try {
+    return sessionStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 // Receipt Modal Component (unchanged)
 const ReceiptModal: React.FC<{ receipt: Receipt | null; onClose: () => void; onDownload: () => void }> = ({ receipt, onClose, onDownload }) => {
   if (!receipt) return null;
@@ -215,19 +223,22 @@ export default function App() {
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
   // mobile hint session state (persist in sessionStorage)
-  const [hideMobileHint, setHideMobileHint] = useState(() => {
-    try {
-      return sessionStorage.getItem('mpg:hideMobileHint') === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [hideMobileHint, setHideMobileHint] = useState(() => tryGetSession('mpg:hideMobileHint', '0') === '1');
 
   useEffect(() => {
     try {
       sessionStorage.setItem('mpg:hideMobileHint', hideMobileHint ? '1' : '0');
     } catch {}
   }, [hideMobileHint]);
+
+  // allowLongPress toggle (persisted)
+  const [allowLongPress, setAllowLongPress] = useState(() => tryGetSession('mpg:allowLongPress', '1') === '1');
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('mpg:allowLongPress', allowLongPress ? '1' : '0');
+    } catch {}
+  }, [allowLongPress]);
 
   // initialize sample pixels once
   useEffect(() => {
@@ -442,6 +453,17 @@ Your pixel is now part of internet history.
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Toggle for long-press: mobile only control */}
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={allowLongPress}
+                  onChange={() => setAllowLongPress(v => !v)}
+                  className="w-5 h-5 rounded bg-gray-700"
+                />
+                <span className="text-gray-300">Preview</span>
+              </label>
+
               <button
                 onClick={() => setHideMobileHint(true)}
                 className="text-xs px-3 py-1 rounded-full bg-gray-700 hover:bg-gray-600 text-white"
@@ -522,86 +544,4 @@ Your pixel is now part of internet history.
                     <span className="text-gray-400">Price:</span>
                     <span className="text-2xl font-bold text-green-400">${PIXEL_PRICE}</span>
                   </div>
-                  <p className="text-xs text-gray-500">One-time payment • Instant ownership • Forever yours</p>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm text-gray-400">When you purchase, you can:</p>
-                  <ul className="text-sm text-gray-300 space-y-1 ml-4">
-                    <li>• Set a redirect link to any website</li>
-                  </ul>
-                </div>
-
-                <button
-                  onClick={() => {
-                    setSearchResult(null);
-                    setSelectedPixelForPurchase(searchResult.id);
-                  }}
-                  className="w-full px-4 py-3 bg-green-600 hover:bg-green-500 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
-                >
-                  Purchase This Pixel
-                </button>
-
-                <button
-                  onClick={() => {
-                    centerPixelInView(searchResult.id);
-                  }}
-                  className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-colors text-sm"
-                >
-                  View on Grid
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tooltip */}
-      {tooltip && (
-        <div
-          style={{
-            position: 'fixed',
-            top: tooltip.y + 20,
-            left: tooltip.x,
-            transform: 'translateX(-50%)',
-            pointerEvents: 'none'
-          }}
-          className="z-50 p-3 bg-gray-900 rounded-md shadow-lg border border-gray-600 max-w-xs text-sm"
-        >
-          <p className="font-bold">Pixel #{tooltip.pixel.id}</p>
-          <div className="flex items-center gap-2 mt-1">
-            <div className="w-4 h-4 rounded border" style={{ backgroundColor: tooltip.pixel.color }}></div>
-            <a href={tooltip.pixel.link} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline truncate">
-              {tooltip.pixel.link}
-            </a>
-          </div>
-        </div>
-      )}
-
-      {/* Grid */}
-      <main ref={gridContainerRef} className="flex-1 pt-[88px] overflow-auto bg-gray-950">
-        <div className="w-[1000px] h-[1000px] mx-auto my-8 bg-gray-900 border-4 border-gray-600 shadow-2xl">
-          <PixelGrid
-            pixels={pixelsRef.current}
-            onPixelSelect={handlePixelSelect}
-            searchedPixel={searchedPixel}
-            onPixelHover={handlePixelHover}
-          />
-        </div>
-      </main>
-
-      {/* Modals */}
-      <PaymentModal
-        pixelId={selectedPixelForPurchase}
-        onClose={() => setSelectedPixelForPurchase(null)}
-        onPaymentSuccess={handlePaymentSuccess}
-      />
-
-      <ReceiptModal
-        receipt={currentReceipt}
-        onClose={() => setCurrentReceipt(null)}
-        onDownload={handleDownloadReceipt}
-      />
-    </div>
-  );
-}
+                  <
