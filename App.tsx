@@ -7,8 +7,6 @@ const TOTAL_PIXELS = 1_000_000;
 const GRID_WIDTH = 1000;
 const PIXEL_PRICE = 1; // $1 per pixel
 
-const CELL_SIZE = 1; // fallback, not used for centering anymore
-
 // WHOP: replace these with your real Whop checkout info
 const WHOP_CHECKOUT_BASE = 'https://buy.whop.com/checkout'; // placeholder
 const WHOP_PRODUCT_ID = 'YOUR_WHO P_PRODUCT_ID'; // placeholder
@@ -27,7 +25,7 @@ interface SearchResult {
   data: PixelData | null;
 }
 
-// Receipt Modal Component
+// Receipt Modal Component (unchanged)
 const ReceiptModal: React.FC<{ receipt: Receipt | null; onClose: () => void; onDownload: () => void }> = ({ receipt, onClose, onDownload }) => {
   if (!receipt) return null;
 
@@ -88,7 +86,7 @@ const ReceiptModal: React.FC<{ receipt: Receipt | null; onClose: () => void; onD
   );
 };
 
-// Payment Modal Component (uses Whop checkout)
+// Payment Modal Component (Whop + demo fallback)
 const PaymentModal: React.FC<{ 
   pixelId: number | null; 
   onClose: () => void; 
@@ -99,10 +97,8 @@ const PaymentModal: React.FC<{
   const [email, setEmail] = useState('');
   const [processing, setProcessing] = useState(false);
 
-  // Opens Whop checkout in a new tab with query params (replace placeholders with real product ID / flow)
   const openWhopCheckout = () => {
-    if (!pixelId && pixelId !== 0) return;
-    // Basic validation
+    if (pixelId === null) return;
     try {
       new URL(link);
     } catch {
@@ -113,8 +109,6 @@ const PaymentModal: React.FC<{
       alert('Please enter a valid email.');
       return;
     }
-    // Build checkout URL; replace with whichever Whop checkout URL you use.
-    // You should configure your Whop product to accept metadata if you want to pass pixel info.
     const params = new URLSearchParams({
       product: WHOP_PRODUCT_ID,
       pixelId: String(pixelId),
@@ -122,16 +116,13 @@ const PaymentModal: React.FC<{
       link,
       email
     });
-    // Example final URL (customize as your Whop integration)
     const checkoutUrl = `${WHOP_CHECKOUT_BASE}?${params.toString()}`;
     window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
-    // Optionally show a small "we'll finalize after webhook" UX; here we just close modal.
     onClose();
   };
 
-  // Demo/test fallback to simulate a payment (keeps compatibility with earlier flow)
   const handleDemoPay = () => {
-    if (!pixelId && pixelId !== 0) return;
+    if (pixelId === null) return;
     try {
       new URL(link);
     } catch {
@@ -222,6 +213,21 @@ export default function App() {
   const [currentReceipt, setCurrentReceipt] = useState<Receipt | null>(null);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
+
+  // mobile hint session state (persist in sessionStorage)
+  const [hideMobileHint, setHideMobileHint] = useState(() => {
+    try {
+      return sessionStorage.getItem('mpg:hideMobileHint') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('mpg:hideMobileHint', hideMobileHint ? '1' : '0');
+    } catch {}
+  }, [hideMobileHint]);
 
   // initialize sample pixels once
   useEffect(() => {
@@ -345,22 +351,18 @@ Your pixel is now part of internet history.
     const canvas = container.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
 
-    // bounding rects in client coordinates
     const canvasRect = canvas.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
 
     const xIndex = id % GRID_WIDTH;
     const yIndex = Math.floor(id / GRID_WIDTH);
 
-    // pixel position within the canvas in CSS pixels
     const pixelCssX = (xIndex / GRID_WIDTH) * canvasRect.width;
     const pixelCssY = (yIndex / GRID_HEIGHT) * canvasRect.height;
 
-    // pixel's client position
     const pixelClientX = canvasRect.left + pixelCssX;
     const pixelClientY = canvasRect.top + pixelCssY;
 
-    // compute scroll offsets (how much to add to container.scrollLeft)
     const desiredScrollLeft = container.scrollLeft + (pixelClientX - containerRect.left) - container.clientWidth / 2;
     const desiredScrollTop = container.scrollTop + (pixelClientY - containerRect.top) - container.clientHeight / 2;
 
@@ -426,6 +428,28 @@ Your pixel is now part of internet history.
       {notification && (
         <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-6 py-3 rounded-full shadow-lg animate-pulse">
           {notification}
+        </div>
+      )}
+
+      {/* Mobile hint pill (visible only on small screens) */}
+      {!hideMobileHint && (
+        <div className="md:hidden fixed top-[72px] left-1/2 -translate-x-1/2 z-40 w-[calc(100%-32px)] max-w-md px-4">
+          <div className="bg-gray-800/95 backdrop-blur-sm rounded-full py-2 px-4 flex items-center justify-between gap-3 shadow-lg border border-gray-700">
+            <div className="flex items-center gap-3">
+              <div className="text-sm">
+                <strong className="block text-white">Tap to select</strong>
+                <span className="text-xs text-gray-300">Long-press to preview • Use two-finger drag to pan</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setHideMobileHint(true)}
+                className="text-xs px-3 py-1 rounded-full bg-gray-700 hover:bg-gray-600 text-white"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
