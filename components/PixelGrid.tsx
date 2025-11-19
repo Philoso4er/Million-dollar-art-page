@@ -10,63 +10,64 @@ interface PixelGridProps {
   onPixelSelect: (pixelId: number) => void;
   searchedPixel: number | null;
   onPixelHover: (pixelId: number | null, mouseX: number, mouseY: number) => void;
-  enableLongPress?: boolean; // new prop to control long-press behavior
+  scale?: number; // 1 = 100%, 2 = 200% etc.
 }
 
-const TOUCH_LONGPRESS_MS = 500; // hold duration to trigger tooltip
-const TOUCH_MOVE_THRESHOLD = 10; // px movement tolerated for tap
+const TOUCH_LONGPRESS_MS = 500;
+const TOUCH_MOVE_THRESHOLD = 10;
 
-const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPixel, onPixelHover, enableLongPress = true }) => {
+const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPixel, onPixelHover, scale = 1 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pixelsRef = useRef<Map<number, PixelData>>(pixels);
   const rafRef = useRef<number | null>(null);
 
-  // touch state refs
+  // touch state
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchMoved = useRef(false);
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
 
-  // keep pixelsRef in sync
-  useEffect(() => {
-    pixelsRef.current = pixels;
-  }, [pixels]);
+  useEffect(() => { pixelsRef.current = pixels; }, [pixels]);
 
-  // Resize canvas handle DPR
-  const resizeCanvasToDisplaySize = useCallback((canvas: HTMLCanvasElement) => {
+  // Resize canvas so that CSS size = GRID_WIDTH * scale (in CSS pixels)
+  const resizeCanvasForScale = useCallback((canvas: HTMLCanvasElement, desiredCssWidth?: number, desiredCssHeight?: number) => {
+    // if desiredCssWidth/Height not provided, use measured bounding rect
     const rect = canvas.getBoundingClientRect();
+    const cssWidth = desiredCssWidth ?? rect.width;
+    const cssHeight = desiredCssHeight ?? rect.height;
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const displayWidth = Math.round(rect.width);
-    const displayHeight = Math.round(rect.height);
-    const needResize = canvas.width !== Math.round(displayWidth * dpr) || canvas.height !== Math.round(displayHeight * dpr);
 
-    if (needResize) {
-      canvas.width = Math.round(displayWidth * dpr);
-      canvas.height = Math.round(displayHeight * dpr);
-      canvas.style.width = `${displayWidth}px`;
-      canvas.style.height = `${displayHeight}px`;
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    } else {
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // set canvas drawing buffer size in device pixels
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      // transform so that 1 canvas unit == 1 CSS pixel (accounting for dpr)
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }, []);
 
-  // draw function
+  // Draw function receives pulse for searched highlight
   const draw = useCallback((ctx: CanvasRenderingContext2D, pulse = 0) => {
+    // clear in CSS pixel space
     ctx.clearRect(0, 0, GRID_WIDTH, GRID_HEIGHT);
+
     ctx.imageSmoothingEnabled = false;
 
-    for (const pixel of pixelsRef.current.values()) {
-      const x = pixel.id % GRID_WIDTH;
-      const y = Math.floor(pixel.id / GRID_WIDTH);
-      ctx.fillStyle = pixel.color;
+    // Draw purchased pixels
+    for (const p of pixelsRef.current.values()) {
+      const x = p.id % GRID_WIDTH;
+      const y = Math.floor(p.id / GRID_WIDTH);
+      ctx.fillStyle = p.color;
       ctx.fillRect(x, y, 1, 1);
     }
 
-    // 10px grid lines
+    // Grid lines every 10px (CSS pixel units)
+    ctx.save();
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i < GRID_WIDTH; i += 10) {
@@ -81,7 +82,9 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
       ctx.lineTo(GRID_WIDTH, j + 0.5);
       ctx.stroke();
     }
+    ctx.restore();
 
+    // Pulsing highlight for searchedPixel
     if (searchedPixel !== null && searchedPixel >= 0 && searchedPixel < GRID_WIDTH * GRID_HEIGHT) {
       const x = searchedPixel % GRID_WIDTH;
       const y = Math.floor(searchedPixel / GRID_WIDTH);
@@ -95,26 +98,31 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     }
   }, [searchedPixel]);
 
-  // initial draw + resize listener
+  // Initialize canvas and watch window resize
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    resizeCanvasToDisplaySize(canvas);
+
+    // Set CSS size to grid size * scale
+    const cssW = GRID_WIDTH * scale;
+    const cssH = GRID_HEIGHT * scale;
+    resizeCanvasForScale(canvas, cssW, cssH);
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+    // draw one-to-one grid units (we draw scaled by changing CSS size; logical drawing uses 0..GRID_WIDTH)
     draw(ctx, 0);
 
     const handleResize = () => {
-      if (!canvas) return;
-      resizeCanvasToDisplaySize(canvas);
+      // keep CSS sizing at GRID * scale (responsive)
+      resizeCanvasForScale(canvas, GRID_WIDTH * scale, GRID_HEIGHT * scale);
       const ctx2 = canvas.getContext('2d');
       if (ctx2) draw(ctx2, 0);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [draw, resizeCanvasToDisplaySize]);
+  }, [draw, resizeCanvasForScale, scale]);
 
-  // pulse animation when searchedPixel present
+  // Animate pulse when searchedPixel exists
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -148,10 +156,10 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     };
   }, [searchedPixel, draw]);
 
-  // convert client coords -> canvas pixel coords (CSS pixels)
+  // Map client coords to grid pixel coordinates (works at any CSS size)
   const clientToCanvasCoords = useCallback((clientX: number, clientY: number) => {
     const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
+    const rect = canvas.getBoundingClientRect(); // reflects CSS size = GRID * scale
     const scaleX = GRID_WIDTH / rect.width;
     const scaleY = GRID_HEIGHT / rect.height;
     const canvasX = (clientX - rect.left) * scaleX;
@@ -161,7 +169,7 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     return { x, y, clientX, clientY };
   }, []);
 
-  // Helpers to clear any pending long-press
+  // Helpers for long-press
   const clearLongPress = useCallback(() => {
     if (longPressTimer.current) {
       window.clearTimeout(longPressTimer.current);
@@ -170,7 +178,7 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     longPressTriggered.current = false;
   }, []);
 
-  // Mouse handlers (desktop)
+  // Mouse handlers
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { x, y } = clientToCanvasCoords(e.clientX, e.clientY);
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
@@ -187,7 +195,7 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     }
   };
 
-  // Touch handlers (mobile)
+  // Touch handlers (same behavior as previous turn)
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (!e.touches || e.touches.length === 0) return;
     const t = e.touches[0];
@@ -196,16 +204,14 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     touchMoved.current = false;
     longPressTriggered.current = false;
 
-    // start long-press timer only if enabled
-    if (enableLongPress) {
-      longPressTimer.current = window.setTimeout(() => {
-        longPressTriggered.current = true;
-        const { x, y } = clientToCanvasCoords(t.clientX, t.clientY);
-        if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
-          onPixelHover(y * GRID_WIDTH + x, t.clientX, t.clientY);
-        }
-      }, TOUCH_LONGPRESS_MS);
-    }
+    // long press triggered
+    longPressTimer.current = window.setTimeout(() => {
+      longPressTriggered.current = true;
+      const { x, y } = clientToCanvasCoords(t.clientX, t.clientY);
+      if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
+        onPixelHover(y * GRID_WIDTH + x, t.clientX, t.clientY);
+      }
+    }, TOUCH_LONGPRESS_MS);
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -215,26 +221,21 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     const dy = Math.abs(t.clientY - touchStartY.current);
     if (dx > TOUCH_MOVE_THRESHOLD || dy > TOUCH_MOVE_THRESHOLD) {
       touchMoved.current = true;
-      // If the user is moving (scrolling/panning), cancel long-press
       clearLongPress();
       onPixelHover(null, 0, 0);
     }
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    // If longPress already triggered, keep tooltip visible and do not select
     if (longPressTriggered.current) {
       clearLongPress();
       return;
     }
-
     clearLongPress();
-
     if (touchMoved.current) {
       touchMoved.current = false;
       return;
     }
-
     const touch = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
     if (!touch) return;
     const { x, y } = clientToCanvasCoords(touch.clientX, touch.clientY);
@@ -257,7 +258,7 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
   return (
     <canvas
       ref={canvasRef}
-      width={GRID_WIDTH}
+      width={GRID_WIDTH} // initial (will be resized by effect to GRID*scale CSS)
       height={GRID_HEIGHT}
       onClick={handleClick}
       onMouseMove={handleMouseMove}
@@ -266,9 +267,14 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchCancel}
-      className="cursor-crosshair w-[1000px] h-[1000px] image-rendering-pixelated"
+      className="cursor-crosshair image-rendering-pixelated"
       role="img"
       aria-label="Million pixel grid"
+      style={{
+        // We don't set CSS width/height here; resize effect sets precise CSS px sizing.
+        display: 'block',
+        margin: 0,
+      }}
     />
   );
 };
