@@ -10,12 +10,13 @@ interface PixelGridProps {
   onPixelSelect: (pixelId: number) => void;
   searchedPixel: number | null;
   onPixelHover: (pixelId: number | null, mouseX: number, mouseY: number) => void;
+  enableLongPress?: boolean; // new prop to control long-press behavior
 }
 
 const TOUCH_LONGPRESS_MS = 500; // hold duration to trigger tooltip
 const TOUCH_MOVE_THRESHOLD = 10; // px movement tolerated for tap
 
-const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPixel, onPixelHover }) => {
+const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPixel, onPixelHover, enableLongPress = true }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pixelsRef = useRef<Map<number, PixelData>>(pixels);
   const rafRef = useRef<number | null>(null);
@@ -195,15 +196,16 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
     touchMoved.current = false;
     longPressTriggered.current = false;
 
-    // start long-press timer
-    longPressTimer.current = window.setTimeout(() => {
-      // trigger long-press tooltip at touch point
-      longPressTriggered.current = true;
-      const { x, y } = clientToCanvasCoords(t.clientX, t.clientY);
-      if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
-        onPixelHover(y * GRID_WIDTH + x, t.clientX, t.clientY);
-      }
-    }, TOUCH_LONGPRESS_MS);
+    // start long-press timer only if enabled
+    if (enableLongPress) {
+      longPressTimer.current = window.setTimeout(() => {
+        longPressTriggered.current = true;
+        const { x, y } = clientToCanvasCoords(t.clientX, t.clientY);
+        if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
+          onPixelHover(y * GRID_WIDTH + x, t.clientX, t.clientY);
+        }
+      }, TOUCH_LONGPRESS_MS);
+    }
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -215,7 +217,6 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
       touchMoved.current = true;
       // If the user is moving (scrolling/panning), cancel long-press
       clearLongPress();
-      // Also hide any tooltip
       onPixelHover(null, 0, 0);
     }
   };
@@ -223,29 +224,23 @@ const PixelGrid: React.FC<PixelGridProps> = ({ pixels, onPixelSelect, searchedPi
   const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
     // If longPress already triggered, keep tooltip visible and do not select
     if (longPressTriggered.current) {
-      // do not fire selection on long-press end; tooltip remains until user taps elsewhere
       clearLongPress();
       return;
     }
 
-    // otherwise it was a tap if movement small and duration short
     clearLongPress();
 
     if (touchMoved.current) {
-      // It was a swipe/scroll — ignore
       touchMoved.current = false;
       return;
     }
 
-    // treat as tap: get last changed touch or the first touch
     const touch = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
     if (!touch) return;
     const { x, y } = clientToCanvasCoords(touch.clientX, touch.clientY);
     if (x >= 0 && x < GRID_WIDTH && y >= 0 && y < GRID_HEIGHT) {
       const pixelId = y * GRID_WIDTH + x;
-      // On mobile, a tap should select (open purchase) — same as click
       onPixelSelect(pixelId);
-      // also hide any tooltip (safer UX)
       onPixelHover(null, 0, 0);
     }
   };
