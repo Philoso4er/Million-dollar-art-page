@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import Admin from './Admin';
+import Admin from './src/Admin';
 
 const isAdmin = window.location.pathname === '/admin';
 
