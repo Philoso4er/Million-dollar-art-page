@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PixelGrid from './components/PixelGrid';
+import PaymentModal from './src/components/PaymentModal';
 import { PixelData } from './types';
 import { loadPixels } from './src/lib/loadPixels';
 
@@ -14,6 +15,8 @@ export default function App() {
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ pixel: PixelData; x: number; y: number } | null>(null);
   const [searchInput, setSearchInput] = useState('');
+  const [activePixel, setActivePixel] = useState<number | null>(null);
+
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
   // Zoom
@@ -30,10 +33,11 @@ export default function App() {
     });
   }, []);
 
-  // 🔹 CLICK HANDLER
+  // 🔹 PIXEL CLICK HANDLER
   const handlePixelSelect = useCallback((pixelId: number) => {
     const pixel = pixelsRef.current.get(pixelId);
 
+    // Sold pixel → open link
     if (pixel) {
       if (pixel.status === 'sold' && pixel.link) {
         window.open(pixel.link, '_blank', 'noopener,noreferrer');
@@ -42,35 +46,11 @@ export default function App() {
       return;
     }
 
-    fetch('/api/create-order', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ pixelIds: [pixelId] })
-})
-  .then(res => {
-    if (!res.ok) throw new Error('Reserve failed');
-    return res.json();
-  })
-  .then(data => {
-    pixelsRef.current.set(pixelId, {
-      id: pixelId,
-      color: '#555555',
-      link: '',
-      status: 'reserved',
-    });
-    forceRender(n => n + 1);
-    setNotification(`⏳ Pixel reserved. Ref: ${data.reference}`);
-  })
-  .catch(() => {
-    alert('Pixel could not be reserved');
-  });
-
-
-    forceRender(n => n + 1);
-    setNotification(`⏳ Pixel #${pixelId} reserved`);
-    setTimeout(() => setNotification(null), 4000);
+    // Free pixel → open payment modal
+    setActivePixel(pixelId);
   }, []);
 
+  // 🔹 HOVER HANDLER
   const handlePixelHover = useCallback(
     (pixelId: number | null, x: number, y: number) => {
       if (pixelId === null) {
@@ -87,6 +67,7 @@ export default function App() {
     []
   );
 
+  // 🔹 SEARCH
   const handleSearch = () => {
     const id = Number(searchInput);
     if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
@@ -133,24 +114,32 @@ export default function App() {
         </div>
       </header>
 
+      {/* Notification */}
       {notification && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-purple-600 px-4 py-2 rounded z-50">
           {notification}
         </div>
       )}
 
+      {/* Tooltip */}
       {tooltip && (
         <div
           className="fixed bg-black text-sm p-2 rounded border border-gray-600 z-50"
           style={{ top: tooltip.y + 12, left: tooltip.x + 12 }}
         >
           <div>Pixel #{tooltip.pixel.id}</div>
-          <a href={tooltip.pixel.link} target="_blank" className="text-blue-400">
+          <a
+            href={tooltip.pixel.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400"
+          >
             {tooltip.pixel.link}
           </a>
         </div>
       )}
 
+      {/* Grid */}
       <main ref={gridContainerRef} className="flex-1 overflow-auto bg-black">
         <div className="mx-auto my-6">
           <PixelGrid
@@ -162,6 +151,25 @@ export default function App() {
           />
         </div>
       </main>
+
+      {/* Payment Modal */}
+      {activePixel !== null && (
+        <PaymentModal
+          pixelId={activePixel}
+          onClose={() => setActivePixel(null)}
+          onReserved={(reference) => {
+            pixelsRef.current.set(activePixel, {
+              id: activePixel,
+              color: '#555555',
+              link: '',
+              status: 'reserved'
+            });
+            forceRender(n => n + 1);
+            setNotification(`⏳ Reserved. Reference: ${reference}`);
+            setActivePixel(null);
+          }}
+        />
+      )}
     </div>
   );
 }
