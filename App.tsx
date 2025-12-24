@@ -42,13 +42,29 @@ export default function App() {
       return;
     }
 
-    // TEMPORARY: local reserve (backend comes next step)
+    fetch('/api/create-order', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ pixelIds: [pixelId] })
+})
+  .then(res => {
+    if (!res.ok) throw new Error('Reserve failed');
+    return res.json();
+  })
+  .then(data => {
     pixelsRef.current.set(pixelId, {
       id: pixelId,
       color: '#555555',
       link: '',
       status: 'reserved',
     });
+    forceRender(n => n + 1);
+    setNotification(`⏳ Pixel reserved. Ref: ${data.reference}`);
+  })
+  .catch(() => {
+    alert('Pixel could not be reserved');
+  });
+
 
     forceRender(n => n + 1);
     setNotification(`⏳ Pixel #${pixelId} reserved`);
