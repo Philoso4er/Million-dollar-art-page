@@ -11,6 +11,7 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
   const [link, setLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const reservePixel = async () => {
     if (!link.startsWith('http')) {
@@ -47,6 +48,7 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
       <div className="bg-gray-900 text-white w-full max-w-md rounded-xl p-6 border border-gray-700">
         {!reference ? (
           <>
+            {/* STEP 1: DETAILS */}
             <h2 className="text-xl font-bold mb-4">
               Buy Pixel #{pixelId}
             </h2>
@@ -95,35 +97,72 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
           </>
         ) : (
           <>
-            <h2 className="text-xl font-bold mb-4">
-              Payment Instructions
+            {/* STEP 2: BANK TRANSFER */}
+            <h2 className="text-xl font-bold mb-3">
+              Pay via Bank Transfer
             </h2>
 
-            <p className="text-sm text-gray-300 mb-3">
-              Send <strong>$1</strong> via bank transfer using the reference below.
+            <p className="text-sm text-gray-300 mb-4">
+              Send <strong>$1</strong> using <strong>ANY bank</strong>.  
+              You <strong>MUST</strong> include the reference below.
             </p>
 
+            {/* Reference */}
             <div className="bg-black rounded p-3 mb-4 text-sm">
-              <div><strong>Reference:</strong></div>
-              <div className="text-green-400 font-mono">{reference}</div>
+              <div className="text-gray-400 mb-1">Payment Reference</div>
+              <div className="text-green-400 font-mono text-lg select-all">
+                {reference}
+              </div>
             </div>
 
+            {/* International */}
+            <div className="bg-gray-800 rounded p-3 text-sm mb-3">
+              <p className="font-semibold mb-1">🌍 International (USD)</p>
+              <p><strong>Bank:</strong> Wise</p>
+              <p><strong>Account Name:</strong> YOUR NAME</p>
+              <p><strong>Account Number:</strong> XXXX-XXXX</p>
+              <p><strong>Routing / IBAN:</strong> XXXX</p>
+            </div>
+
+            {/* Nigeria */}
             <div className="bg-gray-800 rounded p-3 text-sm mb-4">
-              <p><strong>Bank:</strong> Wise (or local equivalent)</p>
-              <p><strong>Account name:</strong> Your Name</p>
-              <p><strong>Account number:</strong> XXXX-XXXX</p>
+              <p className="font-semibold mb-1">🇳🇬 Nigeria</p>
+              <p><strong>Bank:</strong> YOUR BANK</p>
+              <p><strong>Account Name:</strong> YOUR NAME</p>
+              <p><strong>Account Number:</strong> XXXXXXXXXX</p>
             </div>
 
-            <p className="text-xs text-gray-400 mb-4">
-              Your pixel will be finalized after payment is confirmed.
+            <p className="text-xs text-yellow-400 mb-4">
+              ⚠️ Payments without the exact reference may not be credited.
             </p>
+
+            {/* Acknowledge */}
+            <div className="flex items-center gap-2 mb-4">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={e => setAcknowledged(e.target.checked)}
+              />
+              <span className="text-sm text-gray-300">
+                I have sent the payment
+              </span>
+            </div>
 
             <button
               onClick={onClose}
-              className="w-full bg-green-600 py-2 rounded font-semibold"
+              disabled={!acknowledged}
+              className={`w-full py-2 rounded font-semibold ${
+                acknowledged
+                  ? 'bg-green-600 hover:bg-green-500'
+                  : 'bg-gray-700 cursor-not-allowed'
+              }`}
             >
               Done
             </button>
+
+            <p className="text-xs text-gray-400 mt-3 text-center">
+              Your pixel will be finalized after payment is confirmed.
+            </p>
           </>
         )}
       </div>
