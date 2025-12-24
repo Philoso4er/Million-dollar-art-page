@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PixelGrid from './components/PixelGrid';
 import PaymentModal from './src/components/PaymentModal';
+import RecentPurchases from './src/components/RecentPurchases'; // ✅ NEW
 import { PixelData } from './types';
 import { loadPixels } from './src/lib/loadPixels';
 
@@ -170,6 +171,9 @@ export default function App() {
           }}
         />
       )}
+
+      {/* ✅ RECENT PURCHASES TICKER */}
+      <RecentPurchases />
     </div>
   );
 }
