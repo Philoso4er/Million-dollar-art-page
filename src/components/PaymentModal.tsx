@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Props {
   pixelId: number;
@@ -6,12 +6,25 @@ interface Props {
   onReserved: (reference: string) => void;
 }
 
+type Region = 'NG' | 'INTL';
+
 export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
   const [color, setColor] = useState('#ff0000');
   const [link, setLink] = useState('');
   const [loading, setLoading] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  const [region, setRegion] = useState<Region>('INTL');
+
+  // 🌍 Auto-detect region
+  useEffect(() => {
+    try {
+      const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+      if (locale.toLowerCase().includes('ng')) {
+        setRegion('NG');
+      }
+    } catch {}
+  }, []);
 
   const reservePixel = async () => {
     if (!link.startsWith('http')) {
@@ -48,7 +61,6 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
       <div className="bg-gray-900 text-white w-full max-w-md rounded-xl p-6 border border-gray-700">
         {!reference ? (
           <>
-            {/* STEP 1: DETAILS */}
             <h2 className="text-xl font-bold mb-4">
               Buy Pixel #{pixelId}
             </h2>
@@ -80,10 +92,7 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
             </div>
 
             <div className="flex gap-3">
-              <button
-                onClick={onClose}
-                className="flex-1 bg-gray-700 py-2 rounded"
-              >
+              <button onClick={onClose} className="flex-1 bg-gray-700 py-2 rounded">
                 Cancel
               </button>
               <button
@@ -97,17 +106,29 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
           </>
         ) : (
           <>
-            {/* STEP 2: BANK TRANSFER */}
-            <h2 className="text-xl font-bold mb-3">
-              Pay via Bank Transfer
-            </h2>
+            <h2 className="text-xl font-bold mb-3">Pay via Bank Transfer</h2>
 
-            <p className="text-sm text-gray-300 mb-4">
-              Send <strong>$1</strong> using <strong>ANY bank</strong>.  
-              You <strong>MUST</strong> include the reference below.
-            </p>
+            {/* REGION SWITCH */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setRegion('INTL')}
+                className={`flex-1 py-1 rounded ${
+                  region === 'INTL' ? 'bg-blue-600' : 'bg-gray-700'
+                }`}
+              >
+                🌍 International
+              </button>
+              <button
+                onClick={() => setRegion('NG')}
+                className={`flex-1 py-1 rounded ${
+                  region === 'NG' ? 'bg-blue-600' : 'bg-gray-700'
+                }`}
+              >
+                🇳🇬 Nigeria
+              </button>
+            </div>
 
-            {/* Reference */}
+            {/* REFERENCE */}
             <div className="bg-black rounded p-3 mb-4 text-sm">
               <div className="text-gray-400 mb-1">Payment Reference</div>
               <div className="text-green-400 font-mono text-lg select-all">
@@ -115,28 +136,29 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
               </div>
             </div>
 
-            {/* International */}
-            <div className="bg-gray-800 rounded p-3 text-sm mb-3">
-              <p className="font-semibold mb-1">🌍 International (USD)</p>
-              <p><strong>Bank:</strong> Wise</p>
-              <p><strong>Account Name:</strong> YOUR NAME</p>
-              <p><strong>Account Number:</strong> XXXX-XXXX</p>
-              <p><strong>Routing / IBAN:</strong> XXXX</p>
-            </div>
+            {region === 'INTL' && (
+              <div className="bg-gray-800 rounded p-3 text-sm mb-4">
+                <p className="font-semibold mb-1">🌍 International (USD)</p>
+                <p><strong>Bank:</strong> Wise</p>
+                <p><strong>Account Name:</strong> YOUR NAME</p>
+                <p><strong>Account Number:</strong> XXXX-XXXX</p>
+                <p><strong>IBAN / Routing:</strong> XXXX</p>
+              </div>
+            )}
 
-            {/* Nigeria */}
-            <div className="bg-gray-800 rounded p-3 text-sm mb-4">
-              <p className="font-semibold mb-1">🇳🇬 Nigeria</p>
-              <p><strong>Bank:</strong> YOUR BANK</p>
-              <p><strong>Account Name:</strong> YOUR NAME</p>
-              <p><strong>Account Number:</strong> XXXXXXXXXX</p>
-            </div>
+            {region === 'NG' && (
+              <div className="bg-gray-800 rounded p-3 text-sm mb-4">
+                <p className="font-semibold mb-1">🇳🇬 Nigeria</p>
+                <p><strong>Bank:</strong> YOUR BANK</p>
+                <p><strong>Account Name:</strong> YOUR NAME</p>
+                <p><strong>Account Number:</strong> XXXXXXXXXX</p>
+              </div>
+            )}
 
             <p className="text-xs text-yellow-400 mb-4">
               ⚠️ Payments without the exact reference may not be credited.
             </p>
 
-            {/* Acknowledge */}
             <div className="flex items-center gap-2 mb-4">
               <input
                 type="checkbox"
@@ -153,16 +175,12 @@ export default function PaymentModal({ pixelId, onClose, onReserved }: Props) {
               disabled={!acknowledged}
               className={`w-full py-2 rounded font-semibold ${
                 acknowledged
-                  ? 'bg-green-600 hover:bg-green-500'
+                  ? 'bg-green-600'
                   : 'bg-gray-700 cursor-not-allowed'
               }`}
             >
               Done
             </button>
-
-            <p className="text-xs text-gray-400 mt-3 text-center">
-              Your pixel will be finalized after payment is confirmed.
-            </p>
           </>
         )}
       </div>
