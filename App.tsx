@@ -1,32 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PixelGrid from './components/PixelGrid';
 import PaymentModal from './src/components/PaymentModal';
-import RecentPurchases from './src/components/RecentPurchases'; // ✅ NEW
+import RecentPurchases from './src/components/RecentPurchases';
 import { PixelData } from './types';
 import { loadPixels } from './src/lib/loadPixels';
 
 const TOTAL_PIXELS = 1_000_000;
-const GRID_WIDTH = 1000;
 
 export default function App() {
   const pixelsRef = useRef<Map<number, PixelData>>(new Map());
   const [, forceRender] = useState(0);
 
-  const [notification, setNotification] = useState<string | null>(null);
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-  const [tooltip, setTooltip] = useState<{ pixel: PixelData; x: number; y: number } | null>(null);
-  const [searchInput, setSearchInput] = useState('');
+  const [searchData, setSearchData] = useState<PixelData | null>(null);
   const [activePixel, setActivePixel] = useState<number | null>(null);
+  const [searchInput, setSearchInput] = useState('');
 
-  const gridContainerRef = useRef<HTMLDivElement>(null);
-
-  // Zoom
-  const [scale, setScale] = useState<number>(1);
-  const MIN_SCALE = 1;
-  const MAX_SCALE = 8;
-  const SCALE_STEP = 0.25;
-
-  // 🔹 LOAD PIXELS FROM SUPABASE
   useEffect(() => {
     loadPixels().then(map => {
       pixelsRef.current = map;
@@ -34,145 +23,81 @@ export default function App() {
     });
   }, []);
 
-  // 🔹 PIXEL CLICK HANDLER
-  const handlePixelSelect = useCallback((pixelId: number) => {
-    const pixel = pixelsRef.current.get(pixelId);
-
-    // Sold pixel → open link
-    if (pixel) {
-      if (pixel.status === 'sold' && pixel.link) {
-        window.open(pixel.link, '_blank', 'noopener,noreferrer');
-      }
-      // reserved → do nothing
+  const handlePixelSelect = (id: number) => {
+    const pixel = pixelsRef.current.get(id);
+    if (!pixel) {
+      setActivePixel(id);
       return;
     }
-
-    // Free pixel → open payment modal
-    setActivePixel(pixelId);
-  }, []);
-
-  // 🔹 HOVER HANDLER
-  const handlePixelHover = useCallback(
-    (pixelId: number | null, x: number, y: number) => {
-      if (pixelId === null) {
-        setTooltip(null);
-        return;
-      }
-      const pixel = pixelsRef.current.get(pixelId);
-      if (pixel && pixel.status === 'sold') {
-        setTooltip({ pixel, x, y });
-      } else {
-        setTooltip(null);
-      }
-    },
-    []
-  );
-
-  // 🔹 SEARCH
-  const handleSearch = () => {
-    const id = Number(searchInput);
-    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
-      alert(`Enter a number between 0 and ${TOTAL_PIXELS - 1}`);
-      return;
+    if (pixel.status === 'sold' && pixel.link) {
+      window.open(pixel.link, '_blank');
     }
-    setSearchedPixel(id);
-    centerPixelInView(id);
   };
 
-  const centerPixelInView = (id: number) => {
-    const container = gridContainerRef.current;
-    if (!container) return;
-    const x = id % GRID_WIDTH;
-    const y = Math.floor(id / GRID_WIDTH);
-    container.scrollTo({
-      left: x * scale - container.clientWidth / 2,
-      top: y * scale - container.clientHeight / 2,
-      behavior: 'smooth',
-    });
+  const handleSearch = () => {
+    const id = Number(searchInput);
+    if (id < 0 || id >= TOTAL_PIXELS) return;
+    setSearchedPixel(id);
+    setSearchData(pixelsRef.current.get(id) || null);
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-900 text-white overflow-hidden">
-      {/* Header */}
-      <header className="p-3 border-b border-gray-700 flex gap-3 items-center">
-        <h1 className="font-bold text-lg">Million Pixel Grid</h1>
-
+    <div className="h-screen bg-gray-900 text-white flex flex-col">
+      <header className="p-3 flex gap-2 border-b border-gray-700">
         <input
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
           placeholder="Search pixel #"
-          className="bg-gray-800 border border-gray-600 rounded px-2 py-1"
+          className="bg-gray-800 px-2 py-1 rounded"
         />
-        <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
+        <button onClick={handleSearch} className="bg-blue-600 px-3 rounded">
           Search
         </button>
-
-        <div className="ml-auto flex gap-2">
-          <button onClick={() => setScale(s => Math.max(MIN_SCALE, s - SCALE_STEP))}>−</button>
-          <button onClick={() => setScale(1)}>Reset</button>
-          <button onClick={() => setScale(s => Math.min(MAX_SCALE, s + SCALE_STEP))}>+</button>
-        </div>
       </header>
 
-      {/* Notification */}
-      {notification && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-purple-600 px-4 py-2 rounded z-50">
-          {notification}
+      {searchedPixel !== null && (
+        <div className="p-3 bg-gray-800 text-sm flex justify-between items-center">
+          <div>
+            Pixel #{searchedPixel} —{' '}
+            {searchData ? searchData.status : 'FREE'}
+          </div>
+          {!searchData && (
+            <button
+              onClick={() => setActivePixel(searchedPixel)}
+              className="bg-green-600 px-3 py-1 rounded"
+            >
+              Buy
+            </button>
+          )}
         </div>
       )}
 
-      {/* Tooltip */}
-      {tooltip && (
-        <div
-          className="fixed bg-black text-sm p-2 rounded border border-gray-600 z-50"
-          style={{ top: tooltip.y + 12, left: tooltip.x + 12 }}
-        >
-          <div>Pixel #{tooltip.pixel.id}</div>
-          <a
-            href={tooltip.pixel.link}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400"
-          >
-            {tooltip.pixel.link}
-          </a>
-        </div>
-      )}
-
-      {/* Grid */}
-      <main ref={gridContainerRef} className="flex-1 overflow-auto bg-black">
-        <div className="mx-auto my-6">
-          <PixelGrid
-            pixels={pixelsRef.current}
-            onPixelSelect={handlePixelSelect}
-            onPixelHover={handlePixelHover}
-            searchedPixel={searchedPixel}
-            scale={scale}
-          />
-        </div>
+      <main className="flex-1 overflow-hidden">
+        <PixelGrid
+          pixels={pixelsRef.current}
+          onPixelSelect={handlePixelSelect}
+          searchedPixel={searchedPixel}
+          onPixelHover={() => {}}
+        />
       </main>
 
-      {/* Payment Modal */}
       {activePixel !== null && (
         <PaymentModal
           pixelId={activePixel}
           onClose={() => setActivePixel(null)}
-          onReserved={(reference) => {
-            pixelsRef.current.set(activePixel, {
-              id: activePixel,
-              color: '#555555',
-              link: '',
-              status: 'reserved'
+          onReservedUI={(id) => {
+            pixelsRef.current.set(id, {
+              id,
+              status: 'reserved',
+              color: '#555',
+              link: ''
             });
             forceRender(n => n + 1);
-            setNotification(`⏳ Reserved. Reference: ${reference}`);
-            setActivePixel(null);
           }}
         />
       )}
 
-      {/* ✅ RECENT PURCHASES TICKER */}
       <RecentPurchases />
     </div>
   );
