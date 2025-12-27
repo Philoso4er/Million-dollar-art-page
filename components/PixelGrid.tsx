@@ -3,40 +3,25 @@ import { PixelData } from '../types';
 
 const GRID_SIZE = 1000;
 
-interface HoverInfo {
-  id: number;
-  x: number;
-  y: number;
-}
-
 interface Props {
   pixels: Map<number, PixelData>;
-  onPixelSelect: (id: number) => void;
   searchedPixel: number | null;
-  onHover: (pixel: PixelData | null, screenX: number, screenY: number) => void;
-  onCameraChange?: (camera: { x: number; y: number; zoom: number }) => void;
+  selected: Set<number>;
+  onHover: (pixel: PixelData | null, x: number, y: number) => void;
 }
 
 export default function PixelGrid({
   pixels,
-  onPixelSelect,
   searchedPixel,
-  onHover,
-  onCameraChange
+  selected,
+  onHover
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
-
-  // Mouse drag
   const dragging = useRef(false);
-  const lastMouse = useRef({ x: 0, y: 0 });
+  const last = useRef({ x: 0, y: 0 });
 
-  // Touch
-  const lastTouch = useRef<{ x: number; y: number } | null>(null);
-  const lastPinchDist = useRef<number | null>(null);
-
-  /* ================= CANVAS ================= */
+  /* Resize */
   useEffect(() => {
     const canvas = canvasRef.current!;
     const resize = () => {
@@ -49,12 +34,11 @@ export default function PixelGrid({
     return () => window.removeEventListener('resize', resize);
   }, []);
 
-  /* ================= DRAW ================= */
+  /* Draw */
   const draw = () => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
     ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
-
     ctx.clearRect(
       -camera.x / camera.zoom,
       -camera.y / camera.zoom,
@@ -72,6 +56,16 @@ export default function PixelGrid({
       ctx.fillRect(x, y, 1, 1);
     });
 
+    // Selected outline
+    selected.forEach(id => {
+      const x = id % GRID_SIZE;
+      const y = Math.floor(id / GRID_SIZE);
+      ctx.strokeStyle = '#00ffcc';
+      ctx.lineWidth = 1 / camera.zoom;
+      ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
+    });
+
+    // Search highlight
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
@@ -81,21 +75,43 @@ export default function PixelGrid({
     }
   };
 
-  useEffect(() => {
-    draw();
-    onCameraChange?.(camera);
-  }, [camera, pixels, searchedPixel]);
+  useEffect(draw, [camera, pixels, selected, searchedPixel]);
 
-  /* ================= HELPERS ================= */
-  const screenToPixel = (clientX: number, clientY: number) => {
+  const screenToPixel = (x: number, y: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = Math.floor((clientX - rect.left - camera.x) / camera.zoom);
-    const y = Math.floor((clientY - rect.top - camera.y) / camera.zoom);
-    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
-    return y * GRID_SIZE + x;
+    const gx = Math.floor((x - rect.left - camera.x) / camera.zoom);
+    const gy = Math.floor((y - rect.top - camera.y) / camera.zoom);
+    if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) return null;
+    return gy * GRID_SIZE + gx;
   };
 
-  /* ================= MOUSE ================= */
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (dragging.current) {
+      setCamera(c => ({
+        ...c,
+        x: c.x + e.clientX - last.current.x,
+        y: c.y + e.clientY - last.current.y
+      }));
+      last.current = { x: e.clientX, y: e.clientY };
+      onHover(null, 0, 0);
+      return;
+    }
+
+    const id = screenToPixel(e.clientX, e.clientY);
+    if (id === null) return onHover(null, 0, 0);
+
+    onHover(pixels.get(id) || { id, status: 'free' } as PixelData, e.clientX, e.clientY);
+  };
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true;
+    last.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const onMouseUp = () => {
+    dragging.current = false;
+  };
+
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
@@ -105,101 +121,14 @@ export default function PixelGrid({
     }));
   };
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
-  };
-
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (dragging.current) {
-      const dx = e.clientX - lastMouse.current.x;
-      const dy = e.clientY - lastMouse.current.y;
-      lastMouse.current = { x: e.clientX, y: e.clientY };
-      setCamera(c => ({ ...c, x: c.x + dx, y: c.y + dy }));
-      onHover(null, 0, 0);
-      return;
-    }
-
-    const id = screenToPixel(e.clientX, e.clientY);
-    if (id === null) {
-      onHover(null, 0, 0);
-      return;
-    }
-
-    const pixel = pixels.get(id) || {
-      id,
-      status: 'free'
-    };
-
-    onHover(pixel as PixelData, e.clientX, e.clientY);
-  };
-
-  const onMouseUp = () => (dragging.current = false);
-
-  const onClick = (e: React.MouseEvent) => {
-    const id = screenToPixel(e.clientX, e.clientY);
-    if (id !== null) onPixelSelect(id);
-  };
-
-  /* ================= TOUCH ================= */
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) {
-      lastTouch.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY
-      };
-    }
-    if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      lastPinchDist.current = Math.hypot(dx, dy);
-    }
-  };
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault();
-
-    if (e.touches.length === 1 && lastTouch.current) {
-      const dx = e.touches[0].clientX - lastTouch.current.x;
-      const dy = e.touches[0].clientY - lastTouch.current.y;
-      lastTouch.current = {
-        x: e.touches[0].clientX,
-        y: e.touches[0].clientY
-      };
-      setCamera(c => ({ ...c, x: c.x + dx, y: c.y + dy }));
-    }
-
-    if (e.touches.length === 2 && lastPinchDist.current) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.hypot(dx, dy);
-      const scale = dist / lastPinchDist.current;
-      lastPinchDist.current = dist;
-      setCamera(c => ({
-        ...c,
-        zoom: Math.min(20, Math.max(0.5, c.zoom * scale))
-      }));
-    }
-  };
-
-  const onTouchEnd = () => {
-    lastTouch.current = null;
-    lastPinchDist.current = null;
-    onHover(null, 0, 0);
-  };
-
   return (
     <canvas
       ref={canvasRef}
-      className="block cursor-grab touch-none"
-      onWheel={onWheel}
+      className="block cursor-crosshair touch-none"
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
-      onClick={onClick}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+      onWheel={onWheel}
     />
   );
 }
