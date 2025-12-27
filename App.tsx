@@ -1,49 +1,51 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PixelGrid from './components/PixelGrid';
 import PaymentModal from './src/components/PaymentModal';
 import RecentPurchases from './src/components/RecentPurchases';
 import { PixelData } from './types';
 import { loadPixels } from './src/lib/loadPixels';
 
-const TOTAL_PIXELS = 1_000_000;
+const GRID_SIZE = 1000;
 
 export default function App() {
   const pixelsRef = useRef<Map<number, PixelData>>(new Map());
-  const [, forceRender] = useState(0);
 
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-  const [searchData, setSearchData] = useState<PixelData | null>(null);
+  const [hovered, setHovered] = useState<{
+    pixel: PixelData;
+    x: number;
+    y: number;
+  } | null>(null);
+
   const [activePixel, setActivePixel] = useState<number | null>(null);
   const [searchInput, setSearchInput] = useState('');
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
 
   useEffect(() => {
     loadPixels().then(map => {
       pixelsRef.current = map;
-      forceRender(n => n + 1);
     });
   }, []);
 
-  const handlePixelSelect = (id: number) => {
-    const pixel = pixelsRef.current.get(id);
-    if (!pixel) {
-      setActivePixel(id);
-      return;
-    }
-    if (pixel.status === 'sold' && pixel.link) {
-      window.open(pixel.link, '_blank');
-    }
-  };
-
   const handleSearch = () => {
     const id = Number(searchInput);
-    if (id < 0 || id >= TOTAL_PIXELS) return;
+    if (id < 0 || id >= GRID_SIZE * GRID_SIZE) return;
     setSearchedPixel(id);
-    setSearchData(pixelsRef.current.get(id) || null);
+
+    const x = id % GRID_SIZE;
+    const y = Math.floor(id / GRID_SIZE);
+
+    // 🧠 smart zoom + center
+    setCamera({
+      zoom: 8,
+      x: window.innerWidth / 2 - x * 8,
+      y: window.innerHeight / 2 - y * 8
+    });
   };
 
   return (
-    <div className="h-screen bg-gray-900 text-white flex flex-col">
-      <header className="p-3 flex gap-2 border-b border-gray-700">
+    <div className="h-screen bg-gray-900 text-white overflow-hidden">
+      <header className="p-3 flex gap-2 bg-black/80">
         <input
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
@@ -56,45 +58,50 @@ export default function App() {
         </button>
       </header>
 
-      {searchedPixel !== null && (
-        <div className="p-3 bg-gray-800 text-sm flex justify-between items-center">
-          <div>
-            Pixel #{searchedPixel} —{' '}
-            {searchData ? searchData.status : 'FREE'}
-          </div>
-          {!searchData && (
-            <button
-              onClick={() => setActivePixel(searchedPixel)}
-              className="bg-green-600 px-3 py-1 rounded"
+      <PixelGrid
+        pixels={pixelsRef.current}
+        searchedPixel={searchedPixel}
+        onPixelSelect={id => setActivePixel(id)}
+        onHover={(pixel, x, y) =>
+          pixel ? setHovered({ pixel, x, y }) : setHovered(null)
+        }
+        onCameraChange={setCamera}
+      />
+
+      {hovered && (
+        <div
+          className="fixed bg-black text-sm p-2 rounded border border-gray-600 z-50"
+          style={{ top: hovered.y + 12, left: hovered.x + 12 }}
+        >
+          <div>Pixel #{hovered.pixel.id}</div>
+          <div>Status: {hovered.pixel.status || 'free'}</div>
+          {hovered.pixel.color && (
+            <div className="flex items-center gap-2">
+              <div
+                className="w-3 h-3 rounded"
+                style={{ background: hovered.pixel.color }}
+              />
+              {hovered.pixel.color}
+            </div>
+          )}
+          {hovered.pixel.link && (
+            <a
+              href={hovered.pixel.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 underline"
             >
-              Buy
-            </button>
+              Visit
+            </a>
           )}
         </div>
       )}
-
-      <main className="flex-1 overflow-hidden">
-        <PixelGrid
-          pixels={pixelsRef.current}
-          onPixelSelect={handlePixelSelect}
-          searchedPixel={searchedPixel}
-          onPixelHover={() => {}}
-        />
-      </main>
 
       {activePixel !== null && (
         <PaymentModal
           pixelId={activePixel}
           onClose={() => setActivePixel(null)}
-          onReservedUI={(id) => {
-            pixelsRef.current.set(id, {
-              id,
-              status: 'reserved',
-              color: '#555',
-              link: ''
-            });
-            forceRender(n => n + 1);
-          }}
+          onReservedUI={() => {}}
         />
       )}
 
