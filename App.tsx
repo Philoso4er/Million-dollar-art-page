@@ -99,20 +99,27 @@ export default function App() {
       </header>
 
       {/* GRID VIEWPORT */}
-      <div className="fixed inset-0 pt-[64px] flex items-center justify-center bg-gray-950">
-        <div
-          className="relative border-2 border-gray-700 bg-gray-900 shadow-xl"
-          style={{ width: '80vmin', height: '80vmin' }}
-        >
-          <PixelGrid
-            pixels={pixels}
-            searchedPixel={searchedPixel}
-            selected={selected}
-            onPixelSelect={toggleSelect}
-            onHover={() => {}}
-          />
-        </div>
-      </div>
+<div
+  className="fixed inset-0 pt-[64px] bg-gray-950 overflow-auto"
+>
+  <div className="min-h-full min-w-full flex items-center justify-center p-6">
+    <div
+      className="relative border-2 border-gray-700 bg-gray-900 shadow-xl"
+      style={{
+        width: 1000,
+        height: 1000
+      }}
+    >
+      <PixelGrid
+        pixels={pixels}
+        searchedPixel={searchedPixel}
+        selected={selected}
+        onPixelSelect={toggleSelect}
+        onHover={() => {}}
+      />
+    </div>
+  </div>
+</div>
 
       {/* SELECTION BAR */}
       {selected.size > 0 && (
