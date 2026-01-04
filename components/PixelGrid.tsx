@@ -44,13 +44,13 @@ export default function PixelGrid({
 
     ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
 
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#111'; // grid background
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
     pixels.forEach(p => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
-      ctx.fillStyle = p.color || '#333';
+      ctx.fillStyle = p.color || '#777';
       ctx.fillRect(x, y, 1, 1);
     });
 
