@@ -20,17 +20,13 @@ export default function PixelGrid({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [camera, setCamera] = useState({
-    x: 0,
-    y: 0,
-    zoom: 1
-  });
+  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
 
   const dragging = useRef(false);
   const last = useRef({ x: 0, y: 0 });
   const clickStart = useRef({ x: 0, y: 0 });
 
-  /* ---------- INIT CANVAS (FIXED SIZE) ---------- */
+  /* ---------- INIT ---------- */
   useEffect(() => {
     const canvas = canvasRef.current!;
     canvas.width = GRID_SIZE;
@@ -43,21 +39,14 @@ export default function PixelGrid({
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
 
-    // Reset transform
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Clear
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Apply camera
     ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
 
-    // Base grid
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
-    // Pixels
     pixels.forEach(p => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
@@ -65,7 +54,6 @@ export default function PixelGrid({
       ctx.fillRect(x, y, 1, 1);
     });
 
-    // Selected outline
     selected.forEach(id => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
@@ -74,7 +62,6 @@ export default function PixelGrid({
       ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
     });
 
-    // Search highlight
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
@@ -87,12 +74,21 @@ export default function PixelGrid({
   useEffect(draw, [pixels, selected, searchedPixel, camera]);
 
   /* ---------- HELPERS ---------- */
-  const screenToPixel = (clientX: number, clientY: number) => {
+  const screenToPixel = (cx: number, cy: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = Math.floor((clientX - rect.left - camera.x) / camera.zoom);
-    const y = Math.floor((clientY - rect.top - camera.y) / camera.zoom);
+    const x = Math.floor((cx - rect.left - camera.x) / camera.zoom);
+    const y = Math.floor((cy - rect.top - camera.y) / camera.zoom);
     if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
     return y * GRID_SIZE + x;
+  };
+
+  const clampCamera = (x: number, y: number, zoom: number) => {
+    const max = GRID_SIZE * zoom;
+    return {
+      x: Math.min(0, Math.max(x, -max + 200)),
+      y: Math.min(0, Math.max(y, -max + 200)),
+      zoom
+    };
   };
 
   /* ---------- MOUSE ---------- */
@@ -104,11 +100,13 @@ export default function PixelGrid({
 
   const onMouseMove = (e: React.MouseEvent) => {
     if (dragging.current) {
-      setCamera(c => ({
-        ...c,
-        x: c.x + e.clientX - last.current.x,
-        y: c.y + e.clientY - last.current.y
-      }));
+      setCamera(c =>
+        clampCamera(
+          c.x + e.clientX - last.current.x,
+          c.y + e.clientY - last.current.y,
+          c.zoom
+        )
+      );
       last.current = { x: e.clientX, y: e.clientY };
       return;
     }
@@ -119,7 +117,6 @@ export default function PixelGrid({
 
   const onMouseUp = (e: React.MouseEvent) => {
     dragging.current = false;
-
     const dx = Math.abs(e.clientX - clickStart.current.x);
     const dy = Math.abs(e.clientY - clickStart.current.y);
 
@@ -132,16 +129,13 @@ export default function PixelGrid({
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    setCamera(c => ({
-      ...c,
-      zoom: Math.min(20, Math.max(0.5, c.zoom * factor))
-    }));
+    setCamera(c => clampCamera(c.x, c.y, c.zoom * factor));
   };
 
   return (
     <canvas
       ref={canvasRef}
-      className="block cursor-crosshair touch-none"
+      className="cursor-crosshair touch-none"
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
