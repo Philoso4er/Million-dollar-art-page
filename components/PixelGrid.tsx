@@ -2,6 +2,8 @@ import React, { useRef, useEffect, useState } from 'react';
 import { PixelData } from '../types';
 
 const GRID_SIZE = 1000;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 20;
 
 interface Props {
   pixels: Map<number, PixelData>;
@@ -20,46 +22,65 @@ export default function PixelGrid({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Camera controls the "view" into the fixed grid
+  // Camera: world → screen mapping
   const [camera, setCamera] = useState({
-    x: -GRID_SIZE / 2,
-    y: -GRID_SIZE / 2,
-    zoom: 2
+    offsetX: 0,
+    offsetY: 0,
+    zoom: 1
   });
 
   const dragging = useRef(false);
   const last = useRef({ x: 0, y: 0 });
   const clickStart = useRef({ x: 0, y: 0 });
 
-  /* ---------- INITIALIZE CANVAS ---------- */
+  /* ───────────────────────────────
+     CANVAS INITIALIZATION (CRITICAL)
+     Canvas internal size == CSS size
+     No resizing after mount
+  ─────────────────────────────── */
   useEffect(() => {
     const canvas = canvasRef.current!;
-    canvas.width = GRID_SIZE;
-    canvas.height = GRID_SIZE;
-    draw();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const rect = canvas.getBoundingClientRect();
+
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+
+    // Center grid on load
+    setCamera({
+      offsetX: rect.width / 2 - GRID_SIZE / 2,
+      offsetY: rect.height / 2 - GRID_SIZE / 2,
+      zoom: 1
+    });
   }, []);
 
-  /* ---------- DRAW ---------- */
+  /* ───────────────────────────────
+     DRAW
+  ─────────────────────────────── */
   const draw = () => {
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
-    
-    // 🔑 Always reset transform first
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    ctx.imageSmoothingEnabled = false;
+
+    // Reset transform
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    // Clear full canvas
-    ctx.fillStyle = '#111'; // grid background
+    // Clear background
+    ctx.fillStyle = '#0b0b0b';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     // Apply camera transform
-    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
+    ctx.translate(camera.offsetX, camera.offsetY);
+    ctx.scale(camera.zoom, camera.zoom);
 
-    // Base grid (slightly darker than page)
-    ctx.fillStyle = '#1a1a1a';
+    // Grid background
+    ctx.fillStyle = '#151515';
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
-    // Draw pixels
+    // Pixels
     pixels.forEach(p => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
@@ -67,12 +88,12 @@ export default function PixelGrid({
       ctx.fillRect(x, y, 1, 1);
     });
 
-    // Selected pixels outline
+    // Selected outline
+    ctx.strokeStyle = '#00ffd0';
+    ctx.lineWidth = 1 / camera.zoom;
     selected.forEach(id => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
-      ctx.strokeStyle = '#00ffcc';
-      ctx.lineWidth = 1 / camera.zoom;
       ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
     });
 
@@ -80,33 +101,43 @@ export default function PixelGrid({
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
-      ctx.strokeStyle = 'yellow';
-      ctx.lineWidth = 1 / camera.zoom;
+      ctx.strokeStyle = '#ffeb3b';
+      ctx.lineWidth = 2 / camera.zoom;
       ctx.strokeRect(x - 1, y - 1, 3, 3);
     }
   };
 
   useEffect(draw, [pixels, selected, searchedPixel, camera]);
 
-  /* ---------- HELPERS ---------- */
-  const screenToPixel = (clientX: number, clientY: number) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = Math.floor((clientX - rect.left - camera.x) / camera.zoom);
-    const y = Math.floor((clientY - rect.top - camera.y) / camera.zoom);
-    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
-    return y * GRID_SIZE + x;
+  /* ───────────────────────────────
+     COORDINATE CONVERSION
+     (screen → world → pixel)
+  ─────────────────────────────── */
+  const screenToPixel = (clientX: number, clientY: number): number | null => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+
+    const screenX = clientX - rect.left;
+    const screenY = clientY - rect.top;
+
+    const worldX = (screenX - camera.offsetX) / camera.zoom;
+    const worldY = (screenY - camera.offsetY) / camera.zoom;
+
+    if (
+      worldX < 0 ||
+      worldY < 0 ||
+      worldX >= GRID_SIZE ||
+      worldY >= GRID_SIZE
+    ) {
+      return null;
+    }
+
+    return Math.floor(worldY) * GRID_SIZE + Math.floor(worldX);
   };
 
-  const clampCamera = (x: number, y: number, zoom: number) => {
-    const max = GRID_SIZE * zoom;
-    return {
-      x: Math.min(100, Math.max(x, -max + 100)),
-      y: Math.min(100, Math.max(y, -max + 100)),
-      zoom
-    };
-  };
-
-  /* ---------- MOUSE EVENTS ---------- */
+  /* ───────────────────────────────
+     MOUSE INTERACTION
+  ─────────────────────────────── */
   const onMouseDown = (e: React.MouseEvent) => {
     dragging.current = true;
     last.current = { x: e.clientX, y: e.clientY };
@@ -115,13 +146,15 @@ export default function PixelGrid({
 
   const onMouseMove = (e: React.MouseEvent) => {
     if (dragging.current) {
-      setCamera(c =>
-        clampCamera(
-          c.x + e.clientX - last.current.x,
-          c.y + e.clientY - last.current.y,
-          c.zoom
-        )
-      );
+      const dx = e.clientX - last.current.x;
+      const dy = e.clientY - last.current.y;
+
+      setCamera(c => ({
+        ...c,
+        offsetX: c.offsetX + dx,
+        offsetY: c.offsetY + dy
+      }));
+
       last.current = { x: e.clientX, y: e.clientY };
       return;
     }
@@ -140,19 +173,38 @@ export default function PixelGrid({
     const dx = Math.abs(e.clientX - clickStart.current.x);
     const dy = Math.abs(e.clientY - clickStart.current.y);
 
-    // Treat as click if mouse didn't move much
     if (dx < 5 && dy < 5) {
       const id = screenToPixel(e.clientX, e.clientY);
-      if (id !== null) {
-        onPixelSelect(id);
-      }
+      if (id !== null) onPixelSelect(id);
     }
   };
 
   const onWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    setCamera(c => clampCamera(c.x, c.y, c.zoom * factor));
+
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+
+    setCamera(c => {
+      const newZoom = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, c.zoom * zoomFactor)
+      );
+
+      const worldX = (mouseX - c.offsetX) / c.zoom;
+      const worldY = (mouseY - c.offsetY) / c.zoom;
+
+      return {
+        zoom: newZoom,
+        offsetX: mouseX - worldX * newZoom,
+        offsetY: mouseY - worldY * newZoom
+      };
+    });
   };
 
   return (
@@ -167,6 +219,7 @@ export default function PixelGrid({
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
+      onMouseLeave={() => (dragging.current = false)}
       onWheel={onWheel}
     />
   );
