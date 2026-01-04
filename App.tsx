@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import PixelGrid from './components/PixelGrid';
-import PaymentModal from './components/PaymentModal';
+import PixelGrid from './components/PixelGrid';        // if PixelGrid is in /components
+import PaymentModal from './src/components/PaymentModal';
+import { loadPixels } from './src/lib/loadPixels';
 import { PixelData } from './types';
-import { loadPixels } from './lib/loadPixels';
 
 const TOTAL_PIXELS = 1_000_000;
 
