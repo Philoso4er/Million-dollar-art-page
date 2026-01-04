@@ -14,6 +14,12 @@ export default function App() {
 
   const [focusedPixel, setFocusedPixel] = useState<number | null>(null);
 
+  const [hovered, setHovered] = useState<{
+    pixel: PixelData;
+    x: number;
+    y: number;
+  } | null>(null);
+
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
 
@@ -34,6 +40,7 @@ export default function App() {
     setSelected(new Set());
     setFocusedPixel(null);
     setSearchedPixel(null);
+    setHovered(null);
   };
 
   /* ---------- Search ---------- */
@@ -59,9 +66,10 @@ export default function App() {
     alert('No available pixels');
   };
 
-  const focusedData = focusedPixel !== null
-    ? pixels.get(focusedPixel) || { id: focusedPixel, status: 'free' }
-    : null;
+  const focusedData =
+    focusedPixel !== null
+      ? pixels.get(focusedPixel) || { id: focusedPixel, status: 'free' }
+      : null;
 
   return (
     <div className="h-screen w-screen bg-gray-950 text-white overflow-hidden">
@@ -109,11 +117,53 @@ export default function App() {
             setFocusedPixel(id);
             toggleSelect(id);
           }}
-          onHover={() => {}}
+          onHover={(pixel, x, y) => {
+            if (pixel) {
+              setHovered({ pixel, x, y });
+            } else {
+              setHovered(null);
+            }
+          }}
         />
       </div>
 
-      {/* INFO PANEL */}
+      {/* HOVER PANEL */}
+      {hovered && (
+        <div
+          className="fixed z-50 bg-gray-900 border border-gray-700 rounded p-3 text-sm shadow-lg pointer-events-none"
+          style={{
+            top: hovered.y + 12,
+            left: hovered.x + 12
+          }}
+        >
+          <div className="font-bold mb-1">Pixel #{hovered.pixel.id}</div>
+
+          <div className="mb-1">
+            Status:{' '}
+            <span className={hovered.pixel.status === 'sold' ? 'text-red-400' : 'text-green-400'}>
+              {hovered.pixel.status || 'free'}
+            </span>
+          </div>
+
+          {hovered.pixel.color && (
+            <div className="flex items-center gap-2 mb-1">
+              <div
+                className="w-3 h-3 rounded border"
+                style={{ backgroundColor: hovered.pixel.color }}
+              />
+              <span>{hovered.pixel.color}</span>
+            </div>
+          )}
+
+          {hovered.pixel.link && (
+            <div className="text-blue-400 break-all max-w-[200px]">
+              {hovered.pixel.link}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* INFO PANEL (CLICK / SEARCH) */}
       {focusedData && (
         <div className="fixed right-4 top-20 z-50 bg-gray-900 border border-gray-700 rounded-xl p-4 w-64 shadow-lg">
           <h3 className="font-bold mb-2">Pixel #{focusedData.id}</h3>
