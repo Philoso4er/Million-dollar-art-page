@@ -59,11 +59,12 @@ export default function App() {
         </button>
       </header>
 
-      {/* Grid */}
       <PixelGrid
         pixels={pixels}
         searchedPixel={searchedPixel}
         onPixelSelect={toggleSelect}
+        selected={selected}
+        onHover={() => { }}
       />
 
       {/* Selection bar */}
