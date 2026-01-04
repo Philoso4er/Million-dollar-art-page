@@ -7,6 +7,7 @@ interface Props {
   pixels: Map<number, PixelData>;
   searchedPixel: number | null;
   selected: Set<number>;
+  onPixelSelect: (id: number) => void;
   onHover: (pixel: PixelData | null, x: number, y: number) => void;
 }
 
@@ -16,41 +17,47 @@ export default function PixelGrid({
   selected,
   onPixelSelect,
   onHover
-}: Props & { onPixelSelect: (id: number) => void }) {
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
+
+  const [camera, setCamera] = useState({
+    x: 0,
+    y: 0,
+    zoom: 1
+  });
+
   const dragging = useRef(false);
   const last = useRef({ x: 0, y: 0 });
-  const startClick = useRef({ x: 0, y: 0 }); // Track start of click
+  const clickStart = useRef({ x: 0, y: 0 });
 
-  /* Resize */
+  /* ---------- INIT CANVAS (FIXED SIZE) ---------- */
   useEffect(() => {
     const canvas = canvasRef.current!;
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-      draw();
-    };
-    resize();
-    window.addEventListener('resize', resize);
-    return () => window.removeEventListener('resize', resize);
+    canvas.width = GRID_SIZE;
+    canvas.height = GRID_SIZE;
+    draw();
   }, []);
 
-  /* Draw */
+  /* ---------- DRAW ---------- */
   const draw = () => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
 
-    // Fill background (black) - crucial for "blank" screen debugging
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, canvas.width, canvas.height); // Clear screen first
+    // Reset transform
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
 
+    // Clear
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Apply camera
     ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
 
-    // Draw Grid Background
-    ctx.fillStyle = '#000'; // Make grid base black
+    // Base grid
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
+    // Pixels
     pixels.forEach(p => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
@@ -59,15 +66,13 @@ export default function PixelGrid({
     });
 
     // Selected outline
-    if (selected) {
-      selected.forEach(id => {
-        const x = id % GRID_SIZE;
-        const y = Math.floor(id / GRID_SIZE);
-        ctx.strokeStyle = '#00ffcc';
-        ctx.lineWidth = 1 / camera.zoom;
-        ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
-      });
-    }
+    selected.forEach(id => {
+      const x = id % GRID_SIZE;
+      const y = Math.floor(id / GRID_SIZE);
+      ctx.strokeStyle = '#00ffcc';
+      ctx.lineWidth = 1 / camera.zoom;
+      ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
+    });
 
     // Search highlight
     if (searchedPixel !== null) {
@@ -79,14 +84,22 @@ export default function PixelGrid({
     }
   };
 
-  useEffect(draw, [camera, pixels, selected, searchedPixel]);
+  useEffect(draw, [pixels, selected, searchedPixel, camera]);
 
-  const screenToPixel = (x: number, y: number) => {
+  /* ---------- HELPERS ---------- */
+  const screenToPixel = (clientX: number, clientY: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const gx = Math.floor((x - rect.left - camera.x) / camera.zoom);
-    const gy = Math.floor((y - rect.top - camera.y) / camera.zoom);
-    if (gx < 0 || gy < 0 || gx >= GRID_SIZE || gy >= GRID_SIZE) return null;
-    return gy * GRID_SIZE + gx;
+    const x = Math.floor((clientX - rect.left - camera.x) / camera.zoom);
+    const y = Math.floor((clientY - rect.top - camera.y) / camera.zoom);
+    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
+    return y * GRID_SIZE + x;
+  };
+
+  /* ---------- MOUSE ---------- */
+  const onMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true;
+    last.current = { x: e.clientX, y: e.clientY };
+    clickStart.current = { x: e.clientX, y: e.clientY };
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
@@ -100,35 +113,19 @@ export default function PixelGrid({
       return;
     }
 
-    // Hover logic
-    if (onHover) {
-      const id = screenToPixel(e.clientX, e.clientY);
-      if (id === null) {
-        onHover(null, 0, 0);
-      } else {
-        onHover(pixels.get(id) || { id, status: 'free' } as PixelData, e.clientX, e.clientY);
-      }
-    }
-  };
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true;
-    last.current = { x: e.clientX, y: e.clientY };
-    startClick.current = { x: e.clientX, y: e.clientY };
+    const id = screenToPixel(e.clientX, e.clientY);
+    onHover(id !== null ? pixels.get(id) || null : null, e.clientX, e.clientY);
   };
 
   const onMouseUp = (e: React.MouseEvent) => {
     dragging.current = false;
 
-    // Check for click (moved less than 5px)
-    const dx = Math.abs(e.clientX - startClick.current.x);
-    const dy = Math.abs(e.clientY - startClick.current.y);
+    const dx = Math.abs(e.clientX - clickStart.current.x);
+    const dy = Math.abs(e.clientY - clickStart.current.y);
 
     if (dx < 5 && dy < 5) {
       const id = screenToPixel(e.clientX, e.clientY);
-      if (id !== null) {
-        onPixelSelect(id);
-      }
+      if (id !== null) onPixelSelect(id);
     }
   };
 
