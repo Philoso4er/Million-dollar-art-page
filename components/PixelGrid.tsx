@@ -20,33 +20,46 @@ export default function PixelGrid({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
+  // Camera controls the "view" into the fixed grid
+  const [camera, setCamera] = useState({
+    x: -GRID_SIZE / 2,
+    y: -GRID_SIZE / 2,
+    zoom: 2
+  });
 
   const dragging = useRef(false);
   const last = useRef({ x: 0, y: 0 });
   const clickStart = useRef({ x: 0, y: 0 });
 
-  /* ---------- INIT ---------- */
+  /* ---------- INITIALIZE CANVAS ---------- */
   useEffect(() => {
     const canvas = canvasRef.current!;
     canvas.width = GRID_SIZE;
     canvas.height = GRID_SIZE;
     draw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ---------- DRAW ---------- */
   const draw = () => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
-
+    
+    // 🔑 Always reset transform first
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Clear full canvas
+    ctx.fillStyle = '#111'; // grid background
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Apply camera transform
     ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
 
-    ctx.fillStyle = '#111'; // grid background
+    // Base grid (slightly darker than page)
+    ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
+    // Draw pixels
     pixels.forEach(p => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
@@ -54,6 +67,7 @@ export default function PixelGrid({
       ctx.fillRect(x, y, 1, 1);
     });
 
+    // Selected pixels outline
     selected.forEach(id => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
@@ -62,6 +76,7 @@ export default function PixelGrid({
       ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
     });
 
+    // Search highlight
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
@@ -74,10 +89,10 @@ export default function PixelGrid({
   useEffect(draw, [pixels, selected, searchedPixel, camera]);
 
   /* ---------- HELPERS ---------- */
-  const screenToPixel = (cx: number, cy: number) => {
+  const screenToPixel = (clientX: number, clientY: number) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = Math.floor((cx - rect.left - camera.x) / camera.zoom);
-    const y = Math.floor((cy - rect.top - camera.y) / camera.zoom);
+    const x = Math.floor((clientX - rect.left - camera.x) / camera.zoom);
+    const y = Math.floor((clientY - rect.top - camera.y) / camera.zoom);
     if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
     return y * GRID_SIZE + x;
   };
@@ -85,13 +100,13 @@ export default function PixelGrid({
   const clampCamera = (x: number, y: number, zoom: number) => {
     const max = GRID_SIZE * zoom;
     return {
-      x: Math.min(0, Math.max(x, -max + 200)),
-      y: Math.min(0, Math.max(y, -max + 200)),
+      x: Math.min(100, Math.max(x, -max + 100)),
+      y: Math.min(100, Math.max(y, -max + 100)),
       zoom
     };
   };
 
-  /* ---------- MOUSE ---------- */
+  /* ---------- MOUSE EVENTS ---------- */
   const onMouseDown = (e: React.MouseEvent) => {
     dragging.current = true;
     last.current = { x: e.clientX, y: e.clientY };
@@ -112,17 +127,25 @@ export default function PixelGrid({
     }
 
     const id = screenToPixel(e.clientX, e.clientY);
-    onHover(id !== null ? pixels.get(id) || null : null, e.clientX, e.clientY);
+    if (id === null) {
+      onHover(null, 0, 0);
+    } else {
+      onHover(pixels.get(id) || null, e.clientX, e.clientY);
+    }
   };
 
   const onMouseUp = (e: React.MouseEvent) => {
     dragging.current = false;
+
     const dx = Math.abs(e.clientX - clickStart.current.x);
     const dy = Math.abs(e.clientY - clickStart.current.y);
 
+    // Treat as click if mouse didn't move much
     if (dx < 5 && dy < 5) {
       const id = screenToPixel(e.clientX, e.clientY);
-      if (id !== null) onPixelSelect(id);
+      if (id !== null) {
+        onPixelSelect(id);
+      }
     }
   };
 
@@ -135,7 +158,12 @@ export default function PixelGrid({
   return (
     <canvas
       ref={canvasRef}
-      className="cursor-crosshair touch-none"
+      className="block cursor-crosshair touch-none"
+      style={{
+        width: '100%',
+        height: '100%',
+        imageRendering: 'pixelated'
+      }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
