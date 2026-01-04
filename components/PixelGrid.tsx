@@ -14,12 +14,14 @@ export default function PixelGrid({
   pixels,
   searchedPixel,
   selected,
+  onPixelSelect,
   onHover
-}: Props) {
+}: Props & { onPixelSelect: (id: number) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
   const dragging = useRef(false);
   const last = useRef({ x: 0, y: 0 });
+  const startClick = useRef({ x: 0, y: 0 }); // Track start of click
 
   /* Resize */
   useEffect(() => {
@@ -38,15 +40,15 @@ export default function PixelGrid({
   const draw = () => {
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext('2d')!;
-    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
-    ctx.clearRect(
-      -camera.x / camera.zoom,
-      -camera.y / camera.zoom,
-      canvas.width / camera.zoom,
-      canvas.height / camera.zoom
-    );
 
+    // Fill background (black) - crucial for "blank" screen debugging
     ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, canvas.width, canvas.height); // Clear screen first
+
+    ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.x, camera.y);
+
+    // Draw Grid Background
+    ctx.fillStyle = '#000'; // Make grid base black
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
     pixels.forEach(p => {
@@ -57,13 +59,15 @@ export default function PixelGrid({
     });
 
     // Selected outline
-    selected.forEach(id => {
-      const x = id % GRID_SIZE;
-      const y = Math.floor(id / GRID_SIZE);
-      ctx.strokeStyle = '#00ffcc';
-      ctx.lineWidth = 1 / camera.zoom;
-      ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
-    });
+    if (selected) {
+      selected.forEach(id => {
+        const x = id % GRID_SIZE;
+        const y = Math.floor(id / GRID_SIZE);
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 1 / camera.zoom;
+        ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
+      });
+    }
 
     // Search highlight
     if (searchedPixel !== null) {
@@ -93,23 +97,39 @@ export default function PixelGrid({
         y: c.y + e.clientY - last.current.y
       }));
       last.current = { x: e.clientX, y: e.clientY };
-      onHover(null, 0, 0);
       return;
     }
 
-    const id = screenToPixel(e.clientX, e.clientY);
-    if (id === null) return onHover(null, 0, 0);
-
-    onHover(pixels.get(id) || { id, status: 'free' } as PixelData, e.clientX, e.clientY);
+    // Hover logic
+    if (onHover) {
+      const id = screenToPixel(e.clientX, e.clientY);
+      if (id === null) {
+        onHover(null, 0, 0);
+      } else {
+        onHover(pixels.get(id) || { id, status: 'free' } as PixelData, e.clientX, e.clientY);
+      }
+    }
   };
 
   const onMouseDown = (e: React.MouseEvent) => {
     dragging.current = true;
     last.current = { x: e.clientX, y: e.clientY };
+    startClick.current = { x: e.clientX, y: e.clientY };
   };
 
-  const onMouseUp = () => {
+  const onMouseUp = (e: React.MouseEvent) => {
     dragging.current = false;
+
+    // Check for click (moved less than 5px)
+    const dx = Math.abs(e.clientX - startClick.current.x);
+    const dy = Math.abs(e.clientY - startClick.current.y);
+
+    if (dx < 5 && dy < 5) {
+      const id = screenToPixel(e.clientX, e.clientY);
+      if (id !== null) {
+        onPixelSelect(id);
+      }
+    }
   };
 
   const onWheel = (e: React.WheelEvent) => {
