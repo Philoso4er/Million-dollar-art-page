@@ -8,8 +8,11 @@ const TOTAL_PIXELS = 1_000_000;
 
 export default function App() {
   const [pixels, setPixels] = useState<Map<number, PixelData>>(new Map());
+
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
+
+  const [focusedPixel, setFocusedPixel] = useState<number | null>(null);
 
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
@@ -27,8 +30,9 @@ export default function App() {
     });
   };
 
-  const clearSelection = () => {
+  const clearAll = () => {
     setSelected(new Set());
+    setFocusedPixel(null);
     setSearchedPixel(null);
   };
 
@@ -40,27 +44,24 @@ export default function App() {
       return;
     }
     setSearchedPixel(id);
+    setFocusedPixel(id);
   };
 
   /* ---------- Random ---------- */
-  const buyRandomPixel = () => {
-    const free: number[] = [];
+  const buyRandom = () => {
     for (let i = 0; i < TOTAL_PIXELS; i++) {
       if (!pixels.has(i)) {
-        free.push(i);
-        if (free.length > 3000) break;
+        setSelected(new Set([i]));
+        setActivePixels([i]);
+        return;
       }
     }
-
-    if (!free.length) {
-      alert('No available pixels');
-      return;
-    }
-
-    const random = free[Math.floor(Math.random() * free.length)];
-    setSelected(new Set([random]));
-    setActivePixels([random]);
+    alert('No available pixels');
   };
+
+  const focusedData = focusedPixel !== null
+    ? pixels.get(focusedPixel) || { id: focusedPixel, status: 'free' }
+    : null;
 
   return (
     <div className="h-screen w-screen bg-gray-950 text-white overflow-hidden">
@@ -82,15 +83,15 @@ export default function App() {
         </button>
 
         <button
-          onClick={buyRandomPixel}
+          onClick={buyRandom}
           className="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded text-sm font-semibold"
         >
           🎲 Random Pixel
         </button>
 
-        {(selected.size > 0 || searchedPixel !== null) && (
+        {(focusedPixel !== null || selected.size > 0) && (
           <button
-            onClick={clearSelection}
+            onClick={clearAll}
             className="ml-auto bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm"
           >
             Cancel
@@ -98,60 +99,82 @@ export default function App() {
         )}
       </header>
 
-      {/* GRID VIEWPORT */}
-<div
-  className="fixed inset-0 pt-[64px] bg-gray-950 overflow-auto"
->
-  <div className="min-h-full min-w-full flex items-center justify-center p-6">
-    <div
-      className="relative border-2 border-gray-700 bg-gray-900 shadow-xl"
-      style={{
-        width: 1000,
-        height: 1000
-      }}
-    >
-      <PixelGrid
-        pixels={pixels}
-        searchedPixel={searchedPixel}
-        selected={selected}
-        onPixelSelect={toggleSelect}
-        onHover={() => {}}
-      />
-    </div>
-  </div>
-</div>
+      {/* GRID */}
+      <div className="fixed inset-0 pt-[64px] bg-black overflow-hidden">
+        <PixelGrid
+          pixels={pixels}
+          searchedPixel={searchedPixel}
+          selected={selected}
+          onPixelSelect={(id) => {
+            setFocusedPixel(id);
+            toggleSelect(id);
+          }}
+          onHover={() => {}}
+        />
+      </div>
 
-      {/* SELECTION BAR */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-5 py-3 rounded-xl shadow-lg flex items-center gap-4">
-          <span className="text-sm">
-            {selected.size} pixel{selected.size > 1 ? 's' : ''} selected
-          </span>
+      {/* INFO PANEL */}
+      {focusedData && (
+        <div className="fixed right-4 top-20 z-50 bg-gray-900 border border-gray-700 rounded-xl p-4 w-64 shadow-lg">
+          <h3 className="font-bold mb-2">Pixel #{focusedData.id}</h3>
 
+          <div className="text-sm mb-2">
+            Status:{' '}
+            <span className={focusedData.status === 'sold' ? 'text-red-400' : 'text-green-400'}>
+              {focusedData.status || 'free'}
+            </span>
+          </div>
+
+          {focusedData.color && (
+            <div className="flex items-center gap-2 mb-2">
+              <div
+                className="w-4 h-4 rounded border"
+                style={{ backgroundColor: focusedData.color }}
+              />
+              <span className="text-sm">{focusedData.color}</span>
+            </div>
+          )}
+
+          {focusedData.link && (
+            <a
+              href={focusedData.link}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-400 text-sm break-all mb-2 block"
+            >
+              {focusedData.link}
+            </a>
+          )}
+
+          {focusedData.status !== 'sold' && (
+            <button
+              onClick={() => setActivePixels([focusedData.id])}
+              className="mt-3 w-full bg-green-600 hover:bg-green-500 px-3 py-2 rounded text-sm font-semibold"
+            >
+              Buy this pixel
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* MULTI-SELECTION BAR */}
+      {selected.size > 1 && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 px-4 py-2 rounded shadow-lg flex gap-4">
+          <span>{selected.size} selected</span>
           <button
             onClick={() => setActivePixels([...selected])}
-            className="bg-green-600 hover:bg-green-500 px-4 py-2 rounded text-sm font-semibold"
+            className="bg-green-600 px-3 py-1 rounded"
           >
             Buy selected
-          </button>
-
-          <button
-            onClick={clearSelection}
-            className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm"
-          >
-            Clear
           </button>
         </div>
       )}
 
-      {/* CHECKOUT */}
+      {/* PAYMENT MODAL */}
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
-          onClose={() => {
-            setActivePixels(null);
-            clearSelection();
-          }}
+          onClose={() => setActivePixels(null)}
         />
       )}
     </div>
