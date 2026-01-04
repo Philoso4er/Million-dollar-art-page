@@ -11,115 +11,73 @@ export default function App() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
 
+  const [hovered, setHovered] = useState<{ pixel: PixelData | null; x: number; y: number } | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
 
-  /* ---------- LOAD PIXELS ---------- */
   useEffect(() => {
     loadPixels().then(setPixels);
   }, []);
 
-  /* ---------- SELECTION ---------- */
   const toggleSelect = (id: number) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+    setSelected(s => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
     });
   };
 
-  /* ---------- SEARCH ---------- */
-  const handleSearch = () => {
-    const id = Number(searchInput);
-    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
-      alert('Invalid pixel ID');
-      return;
-    }
-    setSearchedPixel(id);
-  };
-
-  /* ---------- RANDOM PIXEL ---------- */
   const buyRandomPixel = () => {
-    const free: number[] = [];
     for (let i = 0; i < TOTAL_PIXELS; i++) {
       if (!pixels.has(i)) {
-        free.push(i);
-        if (free.length > 3000) break;
+        setSelected(new Set([i]));
+        setActivePixels([i]);
+        return;
       }
     }
-
-    if (!free.length) {
-      alert('No available pixels left');
-      return;
-    }
-
-    const random = free[Math.floor(Math.random() * free.length)];
-    setSelected(new Set([random]));
-    setActivePixels([random]);
+    alert('No free pixels');
   };
 
   return (
-    <div className="h-screen w-screen bg-black text-white overflow-hidden">
-      {/* HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-gray-900 border-b border-gray-700 p-3 flex gap-2 items-center">
+    <div className="h-screen bg-black text-white overflow-hidden">
+      <header className="fixed top-0 w-full z-50 bg-gray-900 p-3 flex gap-2">
         <input
           value={searchInput}
           onChange={e => setSearchInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSearch()}
-          placeholder="Search pixel #"
-          className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
+          className="bg-gray-800 px-2 py-1"
+          placeholder="Pixel #"
         />
-        <button
-          onClick={handleSearch}
-          className="bg-blue-600 px-3 py-1 rounded"
-        >
-          Search
-        </button>
-
-        <button
-          onClick={buyRandomPixel}
-          className="bg-purple-600 px-3 py-1 rounded font-semibold"
-        >
-          🎲 Random Pixel ($1)
-        </button>
+        <button onClick={() => setSearchedPixel(Number(searchInput))}>Search</button>
+        <button onClick={buyRandomPixel}>🎲 Random</button>
       </header>
 
-      {/* GRID VIEWPORT */}
-      <div className="fixed inset-0 pt-14 flex items-center justify-center bg-black">
-        <div
-          className="relative border border-gray-700 bg-black"
-          style={{ width: '80vmin', height: '80vmin' }}
-        >
+      <div className="fixed inset-0 pt-14 flex items-center justify-center">
+        <div style={{ width: '80vmin', height: '80vmin' }}>
           <PixelGrid
             pixels={pixels}
             searchedPixel={searchedPixel}
             selected={selected}
             onPixelSelect={toggleSelect}
-            onHover={() => {}}
+            onHover={(pixel, x, y) => setHovered({ pixel, x, y })}
           />
         </div>
       </div>
 
-      {/* SELECTION BAR */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 px-4 py-2 rounded shadow-lg flex gap-4">
-          <span>{selected.size} selected</span>
-          <button
-            onClick={() => setActivePixels([...selected])}
-            className="bg-green-600 px-3 py-1 rounded"
-          >
-            Buy selected
-          </button>
-          <button
-            onClick={() => setSelected(new Set())}
-            className="bg-gray-700 px-3 py-1 rounded"
-          >
-            Clear
-          </button>
+      {hovered?.pixel && (
+        <div className="fixed bg-black p-2 text-sm border" style={{ top: hovered.y + 10, left: hovered.x + 10 }}>
+          Pixel #{hovered.pixel.id}
         </div>
       )}
 
-      {/* CHECKOUT */}
+      {selected.size > 0 && (
+        <button
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-600 px-4 py-2"
+          onClick={() => setActivePixels([...selected])}
+        >
+          Buy {selected.size} selected
+        </button>
+      )}
+
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
