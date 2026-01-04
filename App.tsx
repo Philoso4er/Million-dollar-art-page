@@ -1,13 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import PixelGrid from './components/PixelGrid';
-import PaymentModal from './src/components/PaymentModal';
+import PaymentModal from './components/PaymentModal';
 import { PixelData } from './types';
-import { loadPixels } from './src/lib/loadPixels';
+import { loadPixels } from './lib/loadPixels';
 
 const TOTAL_PIXELS = 1_000_000;
 
 export default function App() {
-  const pixelsRef = useRef<Map<number, PixelData>>(new Map());
+  // ✅ STATE, not ref
+  const [pixels, setPixels] = useState<Map<number, PixelData>>(new Map());
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
@@ -15,13 +16,13 @@ export default function App() {
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
 
+  // ✅ Load pixels properly
   useEffect(() => {
     loadPixels().then(map => {
-      pixelsRef.current = map;
+      setPixels(map);
     });
   }, []);
 
-  /* ---------- Selection ---------- */
   const toggleSelect = (id: number) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -30,7 +31,6 @@ export default function App() {
     });
   };
 
-  /* ---------- Search ---------- */
   const handleSearch = () => {
     const id = Number(searchInput);
     if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
@@ -61,9 +61,10 @@ export default function App() {
 
       {/* Grid */}
       <PixelGrid
-        pixels={pixelsRef.current}
+        pixels={pixels}
         searchedPixel={searchedPixel}
-        onPixelSelect={toggleSelect}
+        selected={selected}
+        onToggleSelect={toggleSelect}
       />
 
       {/* Selection bar */}
