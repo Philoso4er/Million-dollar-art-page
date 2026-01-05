@@ -7,26 +7,25 @@ import { loadPixels } from './src/lib/loadPixels';
 const TOTAL_PIXELS = 1_000_000;
 
 export default function PixelApp() {
-  /* ---------------- STATE ---------------- */
   const [pixels, setPixels] = useState<Map<number, PixelData>>(new Map());
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
-
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-
   const [hovered, setHovered] = useState<{
     pixel: PixelData | null;
     x: number;
     y: number;
   } | null>(null);
 
-  /* ---------------- LOAD PIXELS ---------------- */
   useEffect(() => {
     loadPixels().then(map => setPixels(map));
   }, []);
 
-  /* ---------------- SELECTION ---------------- */
+  const claimedCount = Array.from(pixels.values()).filter(
+    p => p.status === 'sold'
+  ).length;
+
   const toggleSelect = (id: number) => {
     setSelected(prev => {
       const next = new Set(prev);
@@ -35,53 +34,30 @@ export default function PixelApp() {
     });
   };
 
-  const clearSelection = () => {
-    setSelected(new Set());
-    setSearchedPixel(null);
-  };
-
-  /* ---------------- SEARCH ---------------- */
   const handleSearch = () => {
     const id = Number(searchInput);
-    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
-      alert('Invalid pixel ID');
-      return;
-    }
+    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) return;
     setSearchedPixel(id);
     setSelected(new Set([id]));
   };
 
-  /* ---------------- RANDOM BUY ---------------- */
   const buyRandomPixel = () => {
-    const freePixels: number[] = [];
-
     for (let i = 0; i < TOTAL_PIXELS; i++) {
-      if (!pixels.has(i)) freePixels.push(i);
-      if (freePixels.length >= 5000) break; // safety cap
+      if (!pixels.has(i)) {
+        setSelected(new Set([i]));
+        setSearchedPixel(i);
+        setActivePixels([i]);
+        return;
+      }
     }
-
-    if (freePixels.length === 0) {
-      alert('No free pixels available');
-      return;
-    }
-
-    const randomId =
-      freePixels[Math.floor(Math.random() * freePixels.length)];
-
-    setSelected(new Set([randomId]));
-    setSearchedPixel(randomId);
-    setActivePixels([randomId]);
+    alert('No free pixels available');
   };
 
-  /* ---------------- UI ---------------- */
   return (
     <div className="fixed inset-0 bg-black text-white overflow-hidden">
 
-      {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 px-4 py-3 flex items-center gap-3">
-        <h1 className="font-bold text-lg whitespace-nowrap">
-          Million Pixel Grid
-        </h1>
+        <h1 className="font-bold text-lg">Million Pixel Grid</h1>
 
         <input
           value={searchInput}
@@ -102,20 +78,18 @@ export default function PixelApp() {
           onClick={buyRandomPixel}
           className="bg-purple-600 hover:bg-purple-500 px-3 py-1 rounded"
         >
-          🎲 Random Pixel
+          🎲 Random
         </button>
 
-        {selected.size > 0 && (
-          <button
-            onClick={clearSelection}
-            className="ml-auto bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded"
-          >
-            Clear
-          </button>
-        )}
+        <div className="ml-auto text-sm text-gray-300">
+          <span className="font-semibold text-white">
+            {claimedCount.toLocaleString()}
+          </span>
+          {' / '}
+          {TOTAL_PIXELS.toLocaleString()} claimed
+        </div>
       </header>
 
-      {/* GRID */}
       <div className="absolute inset-0 pt-[60px]">
         <PixelGrid
           pixels={pixels}
@@ -128,13 +102,14 @@ export default function PixelApp() {
         />
       </div>
 
-      {/* HOVER INFO */}
       {hovered && (
         <div
           className="fixed z-50 bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm pointer-events-none"
           style={{ left: hovered.x + 12, top: hovered.y + 12 }}
         >
-          <div className="font-semibold">Pixel #{hovered.pixel?.id}</div>
+          <div className="font-semibold">
+            Pixel #{hovered.pixel?.id}
+          </div>
           <div className="text-gray-400">
             {hovered.pixel?.status || 'free'}
           </div>
@@ -146,11 +121,9 @@ export default function PixelApp() {
         </div>
       )}
 
-      {/* SELECTION BAR */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 px-4 py-2 rounded shadow-lg flex gap-4 items-center">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 px-4 py-2 rounded shadow-lg flex gap-4">
           <span>{selected.size} selected</span>
-
           <button
             onClick={() => setActivePixels([...selected])}
             className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded"
@@ -160,7 +133,6 @@ export default function PixelApp() {
         </div>
       )}
 
-      {/* PAYMENT MODAL */}
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
