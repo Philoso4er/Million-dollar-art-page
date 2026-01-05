@@ -11,29 +11,30 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { pixelIds, mode } = req.body;
+    const { pixelIds, color, link, paymentNote } = req.body;
 
     if (!Array.isArray(pixelIds) || pixelIds.length === 0) {
       return res.status(400).json({ error: 'Invalid pixelIds' });
     }
 
-    /* ───────────────────────────────
-       1. CHECK AVAILABILITY
-    ─────────────────────────────── */
+    // Check availability
     const { data: existing } = await supabase
       .from('pixels')
       .select('pixel_id, status')
       .in('pixel_id', pixelIds);
 
-    if (existing && existing.some(p => p.status && p.status !== 'free')) {
+    if (existing && existing.some(p => p.status !== 'free')) {
       return res.status(409).json({ error: 'Some pixels are unavailable' });
     }
 
-    /* ───────────────────────────────
-       2. CREATE ORDER
-    ─────────────────────────────── */
-    const reference = `PIX-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+    const reference = `PIX-${Math.random()
+      .toString(36)
+      .slice(2, 8)
+      .toUpperCase()}`;
+
+    const expiresAt = new Date(
+      Date.now() + 20 * 60 * 1000
+    ).toISOString();
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -42,8 +43,10 @@ export default async function handler(req: any, res: any) {
         pixel_ids: pixelIds,
         amount_usd: pixelIds.length,
         status: 'pending',
+        color,
+        link,
         expires_at: expiresAt,
-        mode
+        payment_note: paymentNote || null
       })
       .select()
       .single();
@@ -52,64 +55,22 @@ export default async function handler(req: any, res: any) {
       return res.status(500).json({ error: orderError.message });
     }
 
-    /* ───────────────────────────────
-       3. PREPARE PIXEL UPDATES
-    ─────────────────────────────── */
-    let updates: any[] = [];
+    const updates = pixelIds.map((id: number) => ({
+      pixel_id: id,
+      status: 'reserved',
+      color,
+      link,
+      order_id: order.id
+    }));
 
-    if (mode === 'sync') {
-      const { color, link } = req.body;
-
-      if (!color || !link) {
-        return res.status(400).json({ error: 'Missing color or link' });
-      }
-
-      updates = pixelIds.map((id: number) => ({
-        pixel_id: id,
-        status: 'reserved',
-        color,
-        link,
-        order_id: order.id
-      }));
-    }
-
-    if (mode === 'individual') {
-      const { data } = req.body;
-
-      if (!data || typeof data !== 'object') {
-        return res.status(400).json({ error: 'Missing individual data' });
-      }
-
-      updates = pixelIds.map((id: number) => {
-        const entry = data[id];
-        if (!entry || !entry.color || !entry.link) {
-          throw new Error(`Missing data for pixel ${id}`);
-        }
-
-        return {
-          pixel_id: id,
-          status: 'reserved',
-          color: entry.color,
-          link: entry.link,
-          order_id: order.id
-        };
-      });
-    }
-
-    /* ───────────────────────────────
-       4. UPSERT PIXELS
-    ─────────────────────────────── */
-    const { error: upsertError } = await supabase
+    const { error: pixelError } = await supabase
       .from('pixels')
       .upsert(updates, { onConflict: 'pixel_id' });
 
-    if (upsertError) {
-      return res.status(500).json({ error: upsertError.message });
+    if (pixelError) {
+      return res.status(500).json({ error: pixelError.message });
     }
 
-    /* ───────────────────────────────
-       DONE
-    ─────────────────────────────── */
     return res.status(200).json({
       orderId: order.id,
       reference,
