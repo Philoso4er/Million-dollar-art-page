@@ -5,10 +5,7 @@ interface Props {
   onClose: () => void;
 }
 
-type Mode = 'sync' | 'individual';
-
 export default function PaymentModal({ pixelIds, onClose }: Props) {
-  const [mode] = useState<Mode>('sync'); // keep sync for now
   const [color, setColor] = useState('#ff0000');
   const [link, setLink] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
@@ -32,7 +29,7 @@ export default function PaymentModal({ pixelIds, onClose }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pixelIds,
-          mode,
+          mode: 'sync',
           color,
           link,
           paymentNote
@@ -48,9 +45,7 @@ export default function PaymentModal({ pixelIds, onClose }: Props) {
       setReference(data.reference);
     } catch (err: any) {
       console.error(err);
-      setError(
-        err?.message || 'Reservation failed. Please try again.'
-      );
+      setError(err?.message || 'Reservation failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -60,7 +55,6 @@ export default function PaymentModal({ pixelIds, onClose }: Props) {
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center">
       <div className="relative bg-gray-900 p-6 rounded-xl w-full max-w-md text-white border border-gray-700">
 
-        {/* CLOSE */}
         <button
           onClick={onClose}
           className="absolute top-3 right-3 text-gray-400 hover:text-white"
