@@ -1,11 +1,9 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-import PixelApp from './PixelApp'; // your existing grid app
+import PixelApp from './PixelApp';
 import AdminDashboard from './components/AdminDashboard';
 
-export default function PixelApp() {
-  // SAME grid code, unchanged
-}
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
