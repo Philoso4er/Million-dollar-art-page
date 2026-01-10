@@ -1,31 +1,29 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { PixelData } from '../types';
+import React, { useRef, useEffect, useState } from "react";
+import { PixelData } from "../types";
 
 const GRID_SIZE = 1000;
-const MIN_ZOOM = 0.5;
-const MAX_ZOOM = 20;
+const CANVAS_SIZE = 800; // fixed pixel grid box
 
 interface Props {
   pixels: Map<number, PixelData>;
-  searchedPixel: number | null;
   selected: Set<number>;
+  searchedPixel: number | null;
   onPixelSelect: (id: number) => void;
   onHover: (pixel: PixelData | null, x: number, y: number) => void;
 }
 
 export default function PixelGrid({
   pixels,
-  searchedPixel,
   selected,
+  searchedPixel,
   onPixelSelect,
   onHover
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Camera: world → screen mapping
   const [camera, setCamera] = useState({
-    offsetX: 0,
-    offsetY: 0,
+    x: 0,
+    y: 0,
     zoom: 1
   });
 
@@ -33,194 +31,111 @@ export default function PixelGrid({
   const last = useRef({ x: 0, y: 0 });
   const clickStart = useRef({ x: 0, y: 0 });
 
-  /* ───────────────────────────────
-     CANVAS INITIALIZATION (CRITICAL)
-     Canvas internal size == CSS size
-     No resizing after mount
-  ─────────────────────────────── */
-  useEffect(() => {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-
-    // Center grid on load
-    setCamera({
-      offsetX: rect.width / 2 - GRID_SIZE / 2,
-      offsetY: rect.height / 2 - GRID_SIZE / 2,
-      zoom: 1
-    });
-  }, []);
-
-  /* ───────────────────────────────
-     DRAW
-  ─────────────────────────────── */
   const draw = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
 
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) return;
-
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.imageSmoothingEnabled = false;
 
-    // Reset transform
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-    // Clear background
-    ctx.fillStyle = '#0b0b0b';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Apply camera transform
-    ctx.translate(camera.offsetX, camera.offsetY);
+    ctx.save();
+    ctx.translate(camera.x, camera.y);
     ctx.scale(camera.zoom, camera.zoom);
 
-    // Grid background
-    ctx.fillStyle = '#151515';
+    // grid background
+    ctx.fillStyle = "#111";
     ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
 
-    // Pixels
-    pixels.forEach(p => {
+    // pixels
+    pixels.forEach((p) => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
-      ctx.fillStyle = p.color || '#777';
+      ctx.fillStyle = p.color || "#444";
       ctx.fillRect(x, y, 1, 1);
     });
 
-    // Selected outline
-    ctx.strokeStyle = '#00ffd0';
-    ctx.lineWidth = 1 / camera.zoom;
-    selected.forEach(id => {
+    // selected outline
+    selected.forEach((id) => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
+      ctx.strokeStyle = "#00FFCC";
+      ctx.lineWidth = 1 / camera.zoom;
       ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
     });
 
-    // Search highlight
+    // search highlight
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
-      ctx.strokeStyle = '#ffeb3b';
+      ctx.strokeStyle = "yellow";
       ctx.lineWidth = 2 / camera.zoom;
       ctx.strokeRect(x - 1, y - 1, 3, 3);
     }
+
+    ctx.restore();
   };
 
   useEffect(draw, [pixels, selected, searchedPixel, camera]);
 
-  /* ───────────────────────────────
-     COORDINATE CONVERSION
-     (screen → world → pixel)
-  ─────────────────────────────── */
-  const screenToPixel = (clientX: number, clientY: number): number | null => {
+  const screenToPixel = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
 
-    const screenX = clientX - rect.left;
-    const screenY = clientY - rect.top;
+    const x = (clientX - rect.left - camera.x) / camera.zoom;
+    const y = (clientY - rect.top - camera.y) / camera.zoom;
 
-    const worldX = (screenX - camera.offsetX) / camera.zoom;
-    const worldY = (screenY - camera.offsetY) / camera.zoom;
-
-    if (
-      worldX < 0 ||
-      worldY < 0 ||
-      worldX >= GRID_SIZE ||
-      worldY >= GRID_SIZE
-    ) {
-      return null;
-    }
-
-    return Math.floor(worldY) * GRID_SIZE + Math.floor(worldX);
-  };
-
-  /* ───────────────────────────────
-     MOUSE INTERACTION
-  ─────────────────────────────── */
-  const onMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true;
-    last.current = { x: e.clientX, y: e.clientY };
-    clickStart.current = { x: e.clientX, y: e.clientY };
+    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
+    return Math.floor(y) * GRID_SIZE + Math.floor(x);
   };
 
   const onMouseMove = (e: React.MouseEvent) => {
     if (dragging.current) {
-      const dx = e.clientX - last.current.x;
-      const dy = e.clientY - last.current.y;
-
       setCamera(c => ({
         ...c,
-        offsetX: c.offsetX + dx,
-        offsetY: c.offsetY + dy
+        x: c.x + (e.clientX - last.current.x),
+        y: c.y + (e.clientY - last.current.y)
       }));
-
       last.current = { x: e.clientX, y: e.clientY };
       return;
     }
 
     const id = screenToPixel(e.clientX, e.clientY);
-    if (id === null) {
-      onHover(null, 0, 0);
-    } else {
+    if (id !== null) {
       onHover(pixels.get(id) || null, e.clientX, e.clientY);
+    } else {
+      onHover(null, 0, 0);
     }
-  };
-
-  const onMouseUp = (e: React.MouseEvent) => {
-    dragging.current = false;
-
-    const dx = Math.abs(e.clientX - clickStart.current.x);
-    const dy = Math.abs(e.clientY - clickStart.current.y);
-
-    if (dx < 5 && dy < 5) {
-      const id = screenToPixel(e.clientX, e.clientY);
-      if (id !== null) onPixelSelect(id);
-    }
-  };
-
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-
-    setCamera(c => {
-      const newZoom = Math.min(
-        MAX_ZOOM,
-        Math.max(MIN_ZOOM, c.zoom * zoomFactor)
-      );
-
-      const worldX = (mouseX - c.offsetX) / c.zoom;
-      const worldY = (mouseY - c.offsetY) / c.zoom;
-
-      return {
-        zoom: newZoom,
-        offsetX: mouseX - worldX * newZoom,
-        offsetY: mouseY - worldY * newZoom
-      };
-    });
   };
 
   return (
     <canvas
       ref={canvasRef}
-      className="block cursor-crosshair touch-none"
-      style={{
-        width: '100%',
-        height: '100%',
-        imageRendering: 'pixelated'
+      width={CANVAS_SIZE}
+      height={CANVAS_SIZE}
+      className="block mx-auto mt-10 border border-gray-700"
+      style={{ imageRendering: "pixelated" }}
+      onMouseDown={(e) => {
+        dragging.current = true;
+        last.current = { x: e.clientX, y: e.clientY };
+        clickStart.current = { x: e.clientX, y: e.clientY };
       }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
+      onMouseUp={(e) => {
+        dragging.current = false;
+        if (Math.abs(e.clientX - clickStart.current.x) < 5) {
+          const id = screenToPixel(e.clientX, e.clientY);
+          if (id !== null) onPixelSelect(id);
+        }
+      }}
       onMouseLeave={() => (dragging.current = false)}
-      onWheel={onWheel}
+      onMouseMove={onMouseMove}
+      onWheel={(e) => {
+        e.preventDefault();
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+        setCamera(c => ({
+          ...c,
+          zoom: Math.min(10, Math.max(0.5, c.zoom * zoomFactor))
+        }));
+      }}
     />
   );
 }
