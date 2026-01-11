@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import PixelGrid from "./components/PixelGrid";
 import PaymentModal from "./components/PaymentModal";
+import AdminPanel from "./components/AdminPanel";
 import { PixelData } from "./types";
 import { loadPixels } from "./src/lib/loadPixels";
 
@@ -9,111 +10,96 @@ const TOTAL_PIXELS = 1_000_000;
 export default function App() {
   const [pixels, setPixels] = useState<Map<number, PixelData>>(new Map());
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-  const [hoverInfo, setHoverInfo] = useState<{ pixel: PixelData | null; x: number; y: number } | null>(null);
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
-
   const [searchInput, setSearchInput] = useState("");
+  const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
+  const [hoverPixel, setHoverPixel] = useState<PixelData | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
 
-  const claimedCount = Array.from(pixels.values()).filter(p => p.status === "sold").length;
-
-  // Load pixels from Supabase
   useEffect(() => {
-    loadPixels().then(setPixels);
+    loadPixels().then((map) => setPixels(map));
   }, []);
 
-  // Toggle selection
   const toggleSelect = (id: number) => {
-    setSelected(prev => {
+    setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  // Search pixel
   const handleSearch = () => {
     const id = Number(searchInput);
-    if (id < 0 || id >= TOTAL_PIXELS) {
-      alert("Invalid pixel");
+    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
+      alert("Invalid pixel ID");
       return;
     }
     setSearchedPixel(id);
   };
 
-  // Random pixel
-  const handleRandomPixel = () => {
-    const freePixels = [...pixels.values()].filter(p => p.status === "free");
-    if (freePixels.length === 0) return alert("All pixels sold!");
-    const random = freePixels[Math.floor(Math.random() * freePixels.length)];
-    setActivePixels([random.id]);
-  };
+  const claimedCount = Array.from(pixels.values()).filter(
+    (p) => p.status === "sold"
+  ).length;
 
   return (
-    <div className="h-screen w-screen bg-black text-white overflow-hidden select-none">
+    <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
 
       {/* HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex gap-3 items-center">
+      <header className="fixed top-0 left-0 right-0 bg-gray-900 border-b border-gray-700 p-3 z-50 flex gap-3 items-center">
         <h1 className="font-bold text-lg">Million Pixel Grid</h1>
 
-        <span className="ml-4 text-sm text-gray-300">
-          {claimedCount.toLocaleString()} / {TOTAL_PIXELS.toLocaleString()} claimed
+        <span className="text-sm bg-gray-800 px-3 py-1 rounded">
+          {claimedCount.toLocaleString()} / 1,000,000 claimed
         </span>
 
         {/* Search */}
-        <div className="flex gap-2 ml-4">
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Search pixel #"
-            className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-36"
-          />
-          <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
-            Search
+        <input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          placeholder="Search pixel #"
+          className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
+        />
+
+        <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
+          Search
+        </button>
+
+        <div className="ml-auto">
+          <button
+            onClick={() => setShowAdmin(true)}
+            className="bg-purple-600 px-3 py-1 rounded"
+          >
+            Admin
           </button>
         </div>
-
-        {/* Random */}
-        <button onClick={handleRandomPixel} className="bg-purple-600 px-3 py-1 rounded">
-          Random Pixel
-        </button>
       </header>
 
+      {/* PIXEL GRID */}
+      <PixelGrid
+        pixels={pixels}
+        searchedPixel={searchedPixel}
+        selected={selected}
+        onPixelSelect={toggleSelect}
+        onHover={(p, x, y) => setHoverPixel(p)}
+      />
+
       {/* HOVER INFO */}
-      {hoverInfo && hoverInfo.pixel && (
-        <div
-          className="fixed bg-gray-900 border border-gray-700 px-3 py-2 rounded text-sm"
-          style={{ left: hoverInfo.x + 12, top: hoverInfo.y + 12 }}
-        >
-          <div>Pixel #{hoverInfo.pixel.id}</div>
-          {hoverInfo.pixel.status === "sold" ? (
-            <>
-              <div>Color: {hoverInfo.pixel.color}</div>
-              <a href={hoverInfo.pixel.link} className="text-blue-400 underline" target="_blank">
-                {hoverInfo.pixel.link}
-              </a>
-            </>
-          ) : (
-            <div className="text-green-400">Available</div>
-          )}
+      {hoverPixel && hoverPixel.status === "sold" && (
+        <div className="fixed bottom-4 right-4 bg-gray-900 border border-gray-600 p-3 rounded shadow-xl text-sm z-50">
+          <b>Pixel #{hoverPixel.id}</b>
+          <div>
+            <span className="inline-block w-4 h-4 border mr-2" style={{ background: hoverPixel.color }}></span>
+            <a href={hoverPixel.link} target="_blank" className="text-blue-400">
+              {hoverPixel.link}
+            </a>
+          </div>
         </div>
       )}
 
-      {/* PIXEL GRID */}
-      <div className="h-full w-full pt-14 overflow-hidden">
-        <PixelGrid
-          pixels={pixels}
-          selected={selected}
-          searchedPixel={searchedPixel}
-          onPixelSelect={toggleSelect}
-          onHover={(pixel, x, y) => setHoverInfo({ pixel, x, y })}
-        />
-      </div>
-
-      {/* SELECTION BAR */}
+      {/* SELECTED BAR */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 px-4 py-2 rounded flex gap-4 border border-gray-700">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-700 px-4 py-2 rounded shadow-xl flex gap-4 z-50">
           <span>{selected.size} selected</span>
           <button
             onClick={() => setActivePixels([...selected])}
@@ -121,7 +107,10 @@ export default function App() {
           >
             Buy Selected
           </button>
-          <button onClick={() => setSelected(new Set())} className="bg-gray-700 px-3 py-1 rounded">
+          <button
+            onClick={() => setSelected(new Set())}
+            className="bg-red-600 px-3 py-1 rounded"
+          >
             Clear
           </button>
         </div>
@@ -131,13 +120,17 @@ export default function App() {
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
-          onClose={() => setActivePixels(null)}
-          onSuccess={() => {
-            // refresh pixel map
-            loadPixels().then(setPixels);
+          onClose={() => {
             setActivePixels(null);
             setSelected(new Set());
           }}
+        />
+      )}
+
+      {/* ADMIN PANEL */}
+      {showAdmin && (
+        <AdminPanel
+          onClose={() => setShowAdmin(false)}
         />
       )}
     </div>
