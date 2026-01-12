@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL!,
@@ -6,29 +6,23 @@ const supabase = createClient(
 );
 
 export default async function handler(req: any, res: any) {
-  if (req.method !== 'POST') {
-    return res.status(405).end();
-  }
-
   const { orderId } = req.body;
 
-  // Mark order as paid
-  const { data: order, error } = await supabase
-    .from('orders')
-    .update({ status: 'paid' })
-    .eq('id', orderId)
-    .select()
-    .single();
+  // Update order
+  const { error: orderErr } = await supabase
+    .from("orders")
+    .update({ status: "paid" })
+    .eq("id", orderId);
 
-  if (error) {
-    return res.status(500).json({ error: error.message });
-  }
+  if (orderErr) return res.status(500).json({ error: orderErr.message });
 
-  // Mark pixels as sold
-  await supabase
-    .from('pixels')
-    .update({ status: 'sold' })
-    .eq('order_id', orderId);
+  // Update pixels
+  const { error: pixelErr } = await supabase
+    .from("pixels")
+    .update({ status: "sold" })
+    .eq("order_id", orderId);
 
-  res.status(200).json({ success: true });
+  if (pixelErr) return res.status(500).json({ error: pixelErr.message });
+
+  return res.status(200).json({ success: true });
 }
