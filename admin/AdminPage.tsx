@@ -1,24 +1,22 @@
-import React, { useEffect, useState } from 'react';
-
-interface Order {
-  id: string;
-  reference: string;
-  pixel_ids: number[];
-  amount_usd: number;
-  status: string;
-  payment_note: string | null;
-  created_at: string;
-}
+import React, { useEffect, useState } from "react";
 
 export default function AdminPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updateMessage, setUpdateMessage] = useState("");
 
   const loadOrders = async () => {
     setLoading(true);
-    const res = await fetch('/api/admin/orders');
+
+    // Trigger cleanup first (no cron needed)
+    await fetch("/api/admin/expire-orders", {
+      method: "POST",
+    });
+
+    const res = await fetch("/api/admin/orders");
     const data = await res.json();
-    setOrders(data);
+
+    setOrders(data.orders || []);
     setLoading(false);
   };
 
@@ -26,69 +24,143 @@ export default function AdminPage() {
     loadOrders();
   }, []);
 
-  const markPaid = async (orderId: string) => {
-    if (!confirm('Mark this order as PAID?')) return;
-
-    const res = await fetch('/api/admin/mark-paid', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId })
+  const markPaid = async (id: string) => {
+    const res = await fetch("/api/admin/mark-paid", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId: id }),
     });
 
     if (!res.ok) {
-      alert('Failed');
+      alert("Failed to mark paid");
       return;
     }
 
+    setUpdateMessage("Order marked as PAID successfully");
+    loadOrders();
+  };
+
+  const attachProof = async (id: string) => {
+    const url = prompt("Enter proof image URL or transaction link");
+    if (!url) return;
+
+    const res = await fetch("/api/admin/attach-proof", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId: id, proofUrl: url }),
+    });
+
+    if (!res.ok) {
+      alert("Failed to attach proof");
+      return;
+    }
+
+    setUpdateMessage("Proof added successfully");
     loadOrders();
   };
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <h1 className="text-2xl font-bold mb-6">Admin – Orders</h1>
+    <div className="p-6 bg-gray-950 min-h-screen text-white">
+      <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
 
-      {loading && <p>Loading…</p>}
+      {updateMessage && (
+        <div className="bg-green-700 p-3 rounded mb-4">{updateMessage}</div>
+      )}
 
-      <div className="space-y-4">
-        {orders.map(o => (
-          <div
-            key={o.id}
-            className="border border-gray-700 rounded p-4 bg-gray-900"
-          >
-            <div className="flex justify-between">
-              <div>
-                <div className="font-mono text-green-400">
-                  {o.reference}
-                </div>
-                <div className="text-sm text-gray-400">
-                  {o.pixel_ids.length} pixels • ${o.amount_usd}
-                </div>
-                <div className="text-xs text-gray-500">
-                  {new Date(o.created_at).toLocaleString()}
-                </div>
+      {loading ? (
+        <p>Loading orders…</p>
+      ) : orders.length === 0 ? (
+        <p>No orders found.</p>
+      ) : (
+        <div className="space-y-4">
+          {orders.map((o) => (
+            <div
+              key={o.id}
+              className="border border-gray-700 p-4 bg-gray-900 rounded"
+            >
+              <h2 className="font-bold text-lg mb-2">
+                Order #{o.reference} -{" "}
+                <span
+                  className={
+                    o.status === "paid"
+                      ? "text-green-400"
+                      : o.status === "pending"
+                      ? "text-yellow-300"
+                      : "text-red-400"
+                  }
+                >
+                  {o.status.toUpperCase()}
+                </span>
+              </h2>
+
+              <p className="text-sm text-gray-300 mb-2">
+                Pixels: {o.pixel_ids.join(", ")}
+              </p>
+
+              {o.color && (
+                <p className="text-sm">
+                  Color: <span style={{ color: o.color }}>{o.color}</span>
+                </p>
+              )}
+
+              {o.link && (
+                <p className="text-sm break-all">
+                  Link:{" "}
+                  <a
+                    href={o.link}
+                    target="_blank"
+                    className="text-blue-400 underline"
+                  >
+                    {o.link}
+                  </a>
+                </p>
+              )}
+
+              <p className="text-sm mt-2">Amount: ${o.amount_usd}</p>
+
+              <p className="text-xs text-gray-500 mt-2">
+                Created: {new Date(o.created_at).toLocaleString()}
+              </p>
+
+              <p className="text-xs text-gray-500">
+                Expires: {new Date(o.expires_at).toLocaleString()}
+              </p>
+
+              {o.payment_proof_url && (
+                <p className="text-xs mt-2 break-all">
+                  Proof:{" "}
+                  <a
+                    href={o.payment_proof_url}
+                    className="text-yellow-400 underline"
+                    target="_blank"
+                  >
+                    {o.payment_proof_url}
+                  </a>
+                </p>
+              )}
+
+              {/* Buttons */}
+              <div className="mt-4 flex gap-3">
+                {o.status !== "paid" && (
+                  <button
+                    onClick={() => markPaid(o.id)}
+                    className="bg-green-700 px-3 py-1 rounded"
+                  >
+                    Mark Paid
+                  </button>
+                )}
+
+                <button
+                  onClick={() => attachProof(o.id)}
+                  className="bg-blue-700 px-3 py-1 rounded"
+                >
+                  Add Proof
+                </button>
               </div>
-
-              <button
-                onClick={() => markPaid(o.id)}
-                className="bg-green-600 hover:bg-green-500 px-3 py-1 rounded"
-              >
-                Mark as Paid
-              </button>
             </div>
-
-            {o.payment_note && (
-              <div className="mt-3 text-sm bg-black p-3 rounded">
-                <div className="text-gray-400 mb-1">Payment proof</div>
-                <div className="break-all">{o.payment_note}</div>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {orders.length === 0 && !loading && (
-          <p className="text-gray-400">No pending orders</p>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
