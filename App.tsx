@@ -11,6 +11,8 @@ export default function App() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
 
+  const [usedCount, setUsedCount] = useState(0);
+
   const [searchInput, setSearchInput] = useState("");
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
 
@@ -20,11 +22,21 @@ export default function App() {
     y: number;
   } | null>(null);
 
+  /* Load grid and count sold/reserved pixels */
   useEffect(() => {
-    loadPixels().then((map) => setPixels(map));
+    loadPixels().then((map) => {
+      setPixels(map);
+
+      let used = 0;
+      map.forEach((p) => {
+        if (p.status === "sold" || p.status === "reserved") {
+          used++;
+        }
+      });
+      setUsedCount(used);
+    });
   }, []);
 
-  /* ---------- SELECTION ---------- */
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -33,7 +45,6 @@ export default function App() {
     });
   };
 
-  /* ---------- SEARCH ---------- */
   const handleSearch = () => {
     const id = Number(searchInput);
     if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
@@ -46,39 +57,43 @@ export default function App() {
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
 
-      {/* HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex gap-2">
-        <input
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="Search pixel #"
-          className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
-        />
-        <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
-          Search
-        </button>
+      {/* Header */}
+      <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex items-center gap-4">
+        <div className="flex gap-2">
+          <input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder="Search pixel #"
+            className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
+          />
+          <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
+            Search
+          </button>
+        </div>
+
+        <div className="text-sm ml-auto text-gray-300">
+          <span className="font-bold text-green-400">{usedCount}</span> /
+          <span className="text-gray-400">1,000,000 claimed</span>
+        </div>
       </header>
 
-      {/* GRID */}
+      {/* PIXEL GRID */}
       <PixelGrid
         pixels={pixels}
         searchedPixel={searchedPixel}
         selected={selected}
         onPixelSelect={toggleSelect}
         onHover={(pixel, x, y) => {
-          if (pixel) {
-            setHoverInfo({ pixel, x, y });
-          } else {
-            setHoverInfo(null);
-          }
+          if (pixel) setHoverInfo({ pixel, x, y });
+          else setHoverInfo(null);
         }}
       />
 
-      {/* FLOATING HOVER TOOLTIP */}
+      {/* HOVER TOOLTIP */}
       {hoverInfo && (
         <div
-          className="fixed bg-gray-900 border border-gray-700 text-sm p-2 rounded shadow-lg z-50 pointer-events-none"
+          className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg z-50 pointer-events-none"
           style={{
             top: hoverInfo.y + 15,
             left: hoverInfo.x + 15,
@@ -89,14 +104,15 @@ export default function App() {
           <div className="text-xs text-gray-400">
             Status: {hoverInfo.pixel.status}
           </div>
+
           {hoverInfo.pixel.status === "sold" && (
             <>
               <div className="mt-1 text-xs">Color: {hoverInfo.pixel.color}</div>
               <a
                 href={hoverInfo.pixel.link}
+                className="text-blue-400 underline text-xs break-all"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-400 underline text-xs break-all"
               >
                 {hoverInfo.pixel.link}
               </a>
@@ -107,14 +123,16 @@ export default function App() {
 
       {/* SELECTION BAR */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 px-4 py-2 rounded shadow-lg flex gap-4">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4">
           <span>{selected.size} selected</span>
+
           <button
             onClick={() => setActivePixels([...selected])}
             className="bg-green-600 px-3 py-1 rounded"
           >
-            Buy selected
+            Buy Selected
           </button>
+
           <button
             onClick={() => setSelected(new Set())}
             className="bg-gray-700 px-3 py-1 rounded"
