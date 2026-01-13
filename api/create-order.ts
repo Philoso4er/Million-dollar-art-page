@@ -1,10 +1,8 @@
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-process.env.SUPABASE_URL!,
-process.env.SUPABASE_SERVICE_ROLE_KEY!
-
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export default async function handler(req: any, res: any) {
@@ -15,33 +13,27 @@ export default async function handler(req: any, res: any) {
   try {
     const { pixelIds, color, link } = req.body;
 
-    if (!Array.isArray(pixelIds) || pixelIds.length === 0) {
+    if (!pixelIds || pixelIds.length === 0) {
       return res.status(400).json({ error: "Invalid pixel selection" });
     }
 
-    // Fetch selected pixels
-    const { data: existing, error: fetchErr } = await supabase
+    // Check pixel availability
+    const { data: existing, error: checkErr } = await supabase
       .from("pixels")
       .select("pixel_id, status")
       .in("pixel_id", pixelIds);
 
-    if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+    if (checkErr) return res.status(500).json({ error: checkErr.message });
 
-    // Validate availability
     if (existing.some((p: any) => p.status !== "free")) {
-      return res.status(409).json({
-        error: "Some selected pixels are no longer available",
-      });
+      return res.status(409).json({ error: "Pixels unavailable" });
     }
 
-    // Create reference ID
-    const reference = "PIX-" + Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    // 20 min expiration
+    const reference = "PIX-" + Math.random().toString(36).substring(2, 10).toUpperCase();
     const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
-    // Create order in DB
-    const { data: order, error: insertErr } = await supabase
+    // Create order in Supabase
+    const { data: order, error: orderErr } = await supabase
       .from("orders")
       .insert({
         reference,
@@ -54,31 +46,51 @@ export default async function handler(req: any, res: any) {
       .select()
       .single();
 
-    if (insertErr) {
-      return res.status(500).json({ error: insertErr.message });
-    }
+    if (orderErr) return res.status(500).json({ error: orderErr.message });
 
     // Reserve pixels
-    const upsertData = pixelIds.map((id: number) => ({
-      pixel_id: id,
-      status: "reserved",
-      order_id: order.id,
-    }));
+    await supabase.from("pixels").upsert(
+      pixelIds.map((id: number) => ({
+        pixel_id: id,
+        status: "reserved",
+        order_id: order.id,
+      }))
+    );
 
-    const { error: pixelErr } = await supabase.from("pixels").upsert(upsertData);
+    // --- FLUTTERWAVE PAYMENT REQUEST ---
+    const flwRes = await fetch("https://api.flutterwave.com/v3/payments", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tx_ref: reference,
+        amount: pixelIds.length,
+        currency: "USD",
+        redirect_url: "https://yourdomain.com/api/confirm-payment",
+        customer: {
+          email: "buyer@placeholder.com",
+        },
+        customizations: {
+          title: "Pixel Purchase",
+          description: `Buying ${pixelIds.length} pixels`,
+        },
+      }),
+    });
 
-    if (pixelErr) {
-      return res.status(500).json({ error: pixelErr.message });
+    const flwJson = await flwRes.json();
+
+    if (!flwJson?.data?.link) {
+      return res.status(500).json({ error: "Flutterwave failed", detail: flwJson });
     }
-
-    // Flutterwave link format: https://flutterwave.com/pay/{reference}
-    const flutterwaveUrl = `https://flutterwave.com/pay/${reference}`;
 
     return res.status(200).json({
       reference,
-      checkout: flutterwaveUrl,
+      checkout: flwJson.data.link, // REAL PAYMENT LINK
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
   }
 }
