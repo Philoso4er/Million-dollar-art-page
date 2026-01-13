@@ -37,22 +37,26 @@ export default function PaymentModal({ pixelIds, onClose }: Props) {
   };
 
   const reserve = async () => {
-    setLoading(true);
+  setLoading(true);
 
-    const payload =
-      mode === "sync"
-        ? {
-            pixelIds,
-            color: syncColor,
-            link: syncLink,
-            individual: null,
-          }
-        : {
-            pixelIds,
-            color: null,
-            link: null,
-            individual: individualData,
-          };
+  const res = await fetch("/api/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pixelIds, color, link }),
+  });
+
+  const data = await res.json();
+
+  setLoading(false);
+
+  if (!res.ok) {
+    alert(data.error || "Reservation failed");
+    return;
+  }
+
+  // Redirect to Flutterwave checkout
+  window.location.href = data.checkout;
+};
 
     const res = await fetch("/api/create-order", {
       method: "POST",
