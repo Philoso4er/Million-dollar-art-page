@@ -1,49 +1,38 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL!,
+  process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export default async function handler(req: any, res: any) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
-    const now = new Date().toISOString();
+    // Fetch expired unpaid orders
+    const { data: expired } = await supabase
+      .from("orders")
+      .select("id")
+      .lt("expires_at", new Date().toISOString())
+      .eq("status", "pending");
 
-    // 1. Find expired pending orders
-    const { data: expiredOrders, error } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('status', 'pending')
-      .lt('expires_at', now);
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    if (!expiredOrders || expiredOrders.length === 0) {
+    if (!expired || expired.length === 0) {
       return res.status(200).json({ cleaned: 0 });
     }
 
-    const orderIds = expiredOrders.map(o => o.id);
+    const expiredIds = expired.map((o) => o.id);
 
-    // 2. Free pixels
+    // Release pixels back to free
     await supabase
-      .from('pixels')
-      .update({
-        status: 'free',
-        order_id: null,
-        color: null,
-        link: null
-      })
-      .in('order_id', orderIds);
+      .from("pixels")
+      .update({ status: "free", order_id: null })
+      .in("order_id", expiredIds);
 
-    return res.status(200).json({
-      cleaned: orderIds.length
-    });
+    // Mark orders as expired
+    await supabase
+      .from("orders")
+      .update({ status: "expired" })
+      .in("id", expiredIds);
+
+    return res.status(200).json({ cleaned: expiredIds.length });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
