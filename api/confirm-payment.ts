@@ -49,7 +49,7 @@ export default function PaymentModal({ pixelIds, onClose }: Props) {
     // Now open Flutterwave inline popup
     // @ts-ignore
     FlutterwaveCheckout({
-      public_key: process.env.FLW_PUBLIC_KEY,
+      public_key: process.env.VITE_FLW_PUBLIC_KEY,
       tx_ref: data.reference,
       amount: pixelIds.length,
       currency: "USD",
