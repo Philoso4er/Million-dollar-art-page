@@ -1,67 +1,116 @@
-import { createClient } from "@supabase/supabase-js";
+import React, { useEffect, useState } from "react";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+interface Props {
+  pixelIds: number[];
+  onClose: () => void;
+}
 
-export default async function handler(req: any, res: any) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+type Mode = "sync" | "individual";
 
-  const payload = req.body;
-  const event = payload.event;
+export default function PaymentModal({ pixelIds, onClose }: Props) {
+  const [mode, setMode] = useState<Mode>("sync");
+  const [syncColor, setSyncColor] = useState("#ff0000");
+  const [syncLink, setSyncLink] = useState("");
+  const [reference, setReference] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Expected payment success event
-  if (event !== "charge.completed") {
-    return res.status(200).json({ message: "Ignored non-payment webhook" });
-  }
+  // Load Flutterwave SDK
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.flutterwave.com/v3.js";
+    script.async = true;
+    document.body.appendChild(script);
+  }, []);
 
-  const tx = payload.data;
-  const reference = tx.tx_ref;
+  const reserveAndPay = async () => {
+    setLoading(true);
 
-  console.log("Webhook received for reference:", reference);
+    // Create backend reservation
+    const res = await fetch("/api/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pixelIds,
+        color: syncColor,
+        link: syncLink,
+      }),
+    });
 
-  if (!reference) {
-    return res.status(400).json({ error: "Missing reference" });
-  }
+    const data = await res.json();
+    setLoading(false);
 
-  // Fetch matching order
-  const { data: order, error: orderErr } = await supabase
-    .from("orders")
-    .select("id, pixel_ids, status")
-    .eq("reference", reference)
-    .single();
+    if (!res.ok) {
+      alert(data.error || "Reservation failed");
+      return;
+    }
 
-  if (orderErr || !order) {
-    console.log("Order not found for reference:", reference);
-    return res.status(404).json({ error: "Order not found" });
-  }
+    setReference(data.reference);
 
-  // Ignore duplicates
-  if (order.status === "paid") {
-    return res.status(200).json({ message: "Already processed" });
-  }
+    // Now open Flutterwave inline popup
+    // @ts-ignore
+    FlutterwaveCheckout({
+      public_key: process.env.VITE_FLW_PUBLIC_KEY,
+      tx_ref: data.reference,
+      amount: pixelIds.length,
+      currency: "USD",
+      payment_options: "card,banktransfer,ussd",
+      customer: {
+        email: "buyer@millionpixel.com",
+      },
+      customizations: {
+        title: "Million Dollar Art",
+        description: `Purchase of ${pixelIds.length} pixels`,
+      },
+      callback: function (payment: any) {
+        // Close modal
+        alert("Payment received! Your order is being confirmed.");
+        onClose();
+      },
+    });
+  };
 
-  // Mark order as paid
-  const { error: updateErr } = await supabase
-    .from("orders")
-    .update({ status: "paid" })
-    .eq("id", order.id);
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-gray-900 p-6 rounded-xl w-full max-w-lg border border-gray-700">
+        <h2 className="text-xl font-bold mb-4 text-white">
+          Buy {pixelIds.length} Pixel{pixelIds.length > 1 ? "s" : ""}
+        </h2>
 
-  if (updateErr) {
-    return res.status(500).json({ error: updateErr.message });
-  }
+        {/* SYNC COLOR & LINK */}
+        <label className="block text-sm mb-1 text-white">Color</label>
+        <input
+          type="color"
+          value={syncColor}
+          onChange={(e) => setSyncColor(e.target.value)}
+          className="w-full h-10 rounded mb-4"
+        />
 
-  // Mark pixels as sold and attach final color + link
-  const upsertData = order.pixel_ids.map((pixelId: number) => ({
-    pixel_id: pixelId,
-    status: "sold",
-    order_id: order.id,
-  }));
+        <label className="block text-sm mb-1 text-white">Link</label>
+        <input
+          type="url"
+          placeholder="https://example.com"
+          value={syncLink}
+          onChange={(e) => setSyncLink(e.target.value)}
+          className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded mb-4 text-white"
+        />
 
-  await supabase.from("pixels").upsert(upsertData);
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 rounded bg-gray-700 text-white"
+          >
+            Cancel
+          </button>
 
-  return res.status(200).json({ message: "Payment confirmed" });
+          <button
+            disabled={loading}
+            onClick={reserveAndPay}
+            className="flex-1 py-2 rounded bg-green-600 font-bold text-white"
+          >
+            {loading ? "Reserving…" : `Pay $${pixelIds.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
