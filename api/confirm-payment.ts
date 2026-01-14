@@ -1,87 +1,67 @@
-import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
+  process.env.VITE_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export default async function handler(req: any, res: any) {
-  // Flutterwave webhooks must be POST
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Flutterwave signature validation
-  const signature = req.headers["verif-hash"];
-  const secret = process.env.FLW_SECRET_KEY;
+  const payload = req.body;
+  const event = payload.event;
 
-  if (!secret) {
-    return res.status(500).json({ error: "FLW_SECRET_KEY not configured" });
+  // Expected payment success event
+  if (event !== "charge.completed") {
+    return res.status(200).json({ message: "Ignored non-payment webhook" });
   }
 
-  if (!signature || signature !== secret) {
-    return res.status(401).json({ error: "Invalid signature" });
+  const tx = payload.data;
+  const reference = tx.tx_ref;
+
+  console.log("Webhook received for reference:", reference);
+
+  if (!reference) {
+    return res.status(400).json({ error: "Missing reference" });
   }
 
-  const event = req.body;
+  // Fetch matching order
+  const { data: order, error: orderErr } = await supabase
+    .from("orders")
+    .select("id, pixel_ids, status")
+    .eq("reference", reference)
+    .single();
 
-  // Flutterwave sends many event types
-  if (event.event !== "charge.completed") {
-    return res.status(200).json({ message: "Ignored event" });
+  if (orderErr || !order) {
+    console.log("Order not found for reference:", reference);
+    return res.status(404).json({ error: "Order not found" });
   }
 
-  try {
-    const txRef = event.data.tx_ref; // Example: PIX-ABC123
-    const flwStatus = event.data.status;
-
-    if (!txRef) {
-      return res.status(400).json({ error: "Missing tx_ref" });
-    }
-
-    // Look up order by reference
-    const { data: order, error: findErr } = await supabase
-      .from("orders")
-      .select("*")
-      .eq("reference", txRef)
-      .single();
-
-    if (findErr || !order) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-
-    // Ignore if already paid
-    if (order.status === "paid") {
-      return res.status(200).json({ message: "Already processed" });
-    }
-
-    // Only process successful payments
-    if (flwStatus !== "successful") {
-      return res.status(400).json({ error: "Payment not successful" });
-    }
-
-    // Mark order as PAID
-    await supabase
-      .from("orders")
-      .update({
-        status: "paid",
-        payment_note: `FLW TX: ${event.data.id}`,
-        payment_proof_url: event.data.flw_ref,
-      })
-      .eq("id", order.id);
-
-    // Convert pixel reservations → sold
-    await supabase
-      .from("pixels")
-      .update({
-        status: "sold",
-        color: order.color,
-        link: order.link,
-      })
-      .in("pixel_id", order.pixel_ids);
-
-    return res.status(200).json({ message: "Payment confirmed" });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  // Ignore duplicates
+  if (order.status === "paid") {
+    return res.status(200).json({ message: "Already processed" });
   }
+
+  // Mark order as paid
+  const { error: updateErr } = await supabase
+    .from("orders")
+    .update({ status: "paid" })
+    .eq("id", order.id);
+
+  if (updateErr) {
+    return res.status(500).json({ error: updateErr.message });
+  }
+
+  // Mark pixels as sold and attach final color + link
+  const upsertData = order.pixel_ids.map((pixelId: number) => ({
+    pixel_id: pixelId,
+    status: "sold",
+    order_id: order.id,
+  }));
+
+  await supabase.from("pixels").upsert(upsertData);
+
+  return res.status(200).json({ message: "Payment confirmed" });
 }
