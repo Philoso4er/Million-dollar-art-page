@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import PixelGrid from "./components/PixelGrid";
-import PaymentModal from "./components/PaymentModal"; // ← correct path!
+import PaymentModal from "./components/PaymentModal"; // ✔ correct path
 import { PixelData } from "./types";
-import { loadPixels } from "./src/lib/loadPixels";
+import { loadPixels } from "./src/lib/loadPixels"; // ✔ correct path because loadPixels IS in src
 
 const TOTAL_PIXELS = 1_000_000;
 
@@ -22,7 +22,7 @@ export default function App() {
     y: number;
   } | null>(null);
 
-  /* ---------- LOAD PIXELS + COUNT USED ---------- */
+  /* Load pixels + count sold/reserved */
   useEffect(() => {
     loadPixels().then((map) => {
       setPixels(map);
@@ -31,12 +31,11 @@ export default function App() {
       map.forEach((p) => {
         if (p.status === "sold" || p.status === "reserved") used++;
       });
-
       setUsedCount(used);
     });
   }, []);
 
-  /* ---------- SELECT PIXELS ---------- */
+  /* Select or unselect pixels */
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -45,7 +44,7 @@ export default function App() {
     });
   };
 
-  /* ---------- SEARCH PIXEL ---------- */
+  /* Search by pixel ID */
   const handleSearch = () => {
     const id = Number(searchInput);
 
@@ -60,10 +59,10 @@ export default function App() {
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
 
-      {/* ---------- HEADER ---------- */}
+      {/* HEADER */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex items-center gap-4">
 
-        {/* Search bar */}
+        {/* Search */}
         <div className="flex gap-2">
           <input
             value={searchInput}
@@ -72,7 +71,6 @@ export default function App() {
             placeholder="Search pixel #"
             className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
           />
-
           <button
             onClick={handleSearch}
             className="bg-blue-600 px-3 py-1 rounded"
@@ -84,23 +82,26 @@ export default function App() {
         {/* Claimed counter */}
         <div className="text-sm ml-auto text-gray-300">
           <span className="font-bold text-green-400">{usedCount}</span>
-          <span className="text-gray-400"> / 1,000,000 claimed</span>
+          / 1,000,000 claimed
         </div>
       </header>
 
-      {/* ---------- PIXEL GRID ---------- */}
+      {/* GRID */}
       <PixelGrid
         pixels={pixels}
         searchedPixel={searchedPixel}
         selected={selected}
         onPixelSelect={toggleSelect}
         onHover={(pixel, x, y) => {
-          if (pixel) setHoverInfo({ pixel, x, y });
-          else setHoverInfo(null);
+          if (pixel) {
+            setHoverInfo({ pixel, x, y });
+          } else {
+            setHoverInfo(null);
+          }
         }}
       />
 
-      {/* ---------- HOVER TOOLTIP ---------- */}
+      {/* Hover tooltip */}
       {hoverInfo && (
         <div
           className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg z-50 pointer-events-none"
@@ -111,9 +112,7 @@ export default function App() {
           }}
         >
           <div className="font-bold mb-1">Pixel #{hoverInfo.pixel.id}</div>
-          <div className="text-xs text-gray-400">
-            Status: {hoverInfo.pixel.status}
-          </div>
+          <div className="text-xs text-gray-400">Status: {hoverInfo.pixel.status}</div>
 
           {hoverInfo.pixel.status === "sold" && (
             <>
@@ -131,7 +130,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ---------- SELECTION BAR ---------- */}
+      {/* Selection Bar */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4">
           <span>{selected.size} selected</span>
@@ -152,7 +151,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ---------- PAYMENT MODAL ---------- */}
+      {/* PAYMENT MODAL */}
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
@@ -162,7 +161,6 @@ export default function App() {
           }}
         />
       )}
-
     </div>
   );
 }
