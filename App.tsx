@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from "react";
-import PixelGrid from "./components/PixelGrid";
+import React, { useEffect, useRef, useState } from "react";
+import PixelGrid, { PixelGridHandle } from "./components/PixelGrid";
 import PaymentModal from "./components/PaymentModal";
 import { PixelData } from "./types";
 import { loadPixels } from "./src/lib/loadPixels";
@@ -12,33 +12,34 @@ export default function App() {
   const [activePixels, setActivePixels] = useState<number[] | null>(null);
 
   const [usedCount, setUsedCount] = useState(0);
-
-  const [searchInput, setSearchInput] = useState("");
-  const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-
   const [hoverInfo, setHoverInfo] = useState<{
     pixel: PixelData;
     x: number;
     y: number;
   } | null>(null);
 
-  // IMPORTANT: Stores grid offset for centering search result
-  const offset = useRef({ x: 0, y: 0 });
+  const [searchInput, setSearchInput] = useState("");
+  const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
 
-  /* Load all pixel data and compute claimed count */
+  // PixelGrid reference for smooth scrolling
+  const gridRef = useRef<PixelGridHandle>(null);
+
+  // Load pixel data on mount
   useEffect(() => {
     loadPixels().then((map) => {
       setPixels(map);
 
+      // Count claimed pixels
       let used = 0;
       map.forEach((p) => {
         if (p.status === "sold" || p.status === "reserved") used++;
       });
+
       setUsedCount(used);
     });
   }, []);
 
-  /* Toggle selecting a pixel */
+  /* Toggle pixel selection */
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -47,7 +48,7 @@ export default function App() {
     });
   };
 
-  /* Search and auto-center pixel */
+  /* Search for pixel ID */
   const handleSearch = () => {
     const id = Number(searchInput);
 
@@ -58,42 +59,37 @@ export default function App() {
 
     setSearchedPixel(id);
 
-    const x = id % 1000;
-    const y = Math.floor(id / 1000);
-
-    // Center this pixel when possible
-    requestAnimationFrame(() => {
-      offset.current = {
-        x: window.innerWidth / 2 - x,
-        y: window.innerHeight / 2 - y,
-      };
-    });
+    // Smooth animated pan
+    gridRef.current?.scrollToPixel(id);
   };
 
-  /* Random free pixel selection */
+  /* Random available pixel selector */
   const handleRandomPixel = () => {
-    const free = Array.from(pixels.values()).filter(
-      (p) => p.status === "free"
-    );
+    const available = Array.from(pixels.values())
+      .filter((p) => p.status === "free")
+      .map((p) => p.id);
 
-    if (free.length === 0) {
-      alert("No free pixels remaining!");
+    if (available.length === 0) {
+      alert("No pixels available!");
       return;
     }
 
-    const randomPixel = free[Math.floor(Math.random() * free.length)];
+    const randomId = available[Math.floor(Math.random() * available.length)];
 
-    setSelected(new Set([randomPixel.id]));
-    setActivePixels([randomPixel.id]);
+    setSearchedPixel(randomId);
+    gridRef.current?.scrollToPixel(randomId);
+
+    setSelected(new Set([randomId]));
+    setActivePixels([randomId]);
   };
 
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
 
-      {/* HEADER */}
+      {/* ---------------------------------- HEADER ---------------------------------- */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex items-center gap-4">
 
-        {/* Search */}
+        {/* SEARCH INPUT */}
         <div className="flex gap-2">
           <input
             value={searchInput}
@@ -110,7 +106,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* RANDOM BUTTON */}
+        {/* RANDOM BUY BUTTON */}
         <button
           onClick={handleRandomPixel}
           className="bg-purple-600 px-3 py-1 rounded"
@@ -118,20 +114,15 @@ export default function App() {
           Random Pixel
         </button>
 
-        {/* Admin button */}
-        <a href="/admin" className="ml-auto bg-red-600 px-3 py-1 rounded">
-          Admin
-        </a>
-
-        {/* Claimed counter */}
-        <div className="text-sm text-gray-300 ml-4">
-          <span className="font-bold text-green-400">{usedCount}</span>
-          / 1,000,000 claimed
+        {/* CLAIMED COUNTER */}
+        <div className="ml-auto text-sm text-gray-300">
+          <span className="text-green-400 font-bold">{usedCount}</span> / 1,000,000 claimed
         </div>
       </header>
 
-      {/* GRID CANVAS */}
+      {/* ---------------------------------- PIXEL GRID ---------------------------------- */}
       <PixelGrid
+        ref={gridRef}
         pixels={pixels}
         searchedPixel={searchedPixel}
         selected={selected}
@@ -142,10 +133,10 @@ export default function App() {
         }}
       />
 
-      {/* Hover tooltip */}
+      {/* ---------------------------------- HOVER TOOLTIP ---------------------------------- */}
       {hoverInfo && (
         <div
-          className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg z-50 pointer-events-none"
+          className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg text-sm z-50 pointer-events-none"
           style={{
             top: hoverInfo.y + 15,
             left: hoverInfo.x + 15,
@@ -153,7 +144,7 @@ export default function App() {
           }}
         >
           <div className="font-bold mb-1">Pixel #{hoverInfo.pixel.id}</div>
-          <div className="text-xs text-gray-400">
+          <div className="text-gray-400 text-xs">
             Status: {hoverInfo.pixel.status}
           </div>
 
@@ -173,9 +164,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Selection Bar */}
+      {/* ---------------------------------- SELECTION BAR ---------------------------------- */}
       {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4 items-center">
           <span>{selected.size} selected</span>
 
           <button
@@ -194,7 +185,7 @@ export default function App() {
         </div>
       )}
 
-      {/* PAYMENT MODAL */}
+      {/* ---------------------------------- PAYMENT MODAL ---------------------------------- */}
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
