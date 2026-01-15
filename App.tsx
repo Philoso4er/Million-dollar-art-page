@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import PixelGrid from "./components/PixelGrid";
-import PaymentModal from "./components/PaymentModal"; // ✔ correct path
+import PaymentModal from "./components/PaymentModal";
 import { PixelData } from "./types";
-import { loadPixels } from "./src/lib/loadPixels"; // ✔ correct path because loadPixels IS in src
+import { loadPixels } from "./src/lib/loadPixels";
 
 const TOTAL_PIXELS = 1_000_000;
 
@@ -22,7 +22,10 @@ export default function App() {
     y: number;
   } | null>(null);
 
-  /* Load pixels + count sold/reserved */
+  // IMPORTANT: Stores grid offset for centering search result
+  const offset = useRef({ x: 0, y: 0 });
+
+  /* Load all pixel data and compute claimed count */
   useEffect(() => {
     loadPixels().then((map) => {
       setPixels(map);
@@ -35,7 +38,7 @@ export default function App() {
     });
   }, []);
 
-  /* Select or unselect pixels */
+  /* Toggle selecting a pixel */
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -44,7 +47,7 @@ export default function App() {
     });
   };
 
-  /* Search by pixel ID */
+  /* Search and auto-center pixel */
   const handleSearch = () => {
     const id = Number(searchInput);
 
@@ -54,6 +57,34 @@ export default function App() {
     }
 
     setSearchedPixel(id);
+
+    const x = id % 1000;
+    const y = Math.floor(id / 1000);
+
+    // Center this pixel when possible
+    requestAnimationFrame(() => {
+      offset.current = {
+        x: window.innerWidth / 2 - x,
+        y: window.innerHeight / 2 - y,
+      };
+    });
+  };
+
+  /* Random free pixel selection */
+  const handleRandomPixel = () => {
+    const free = Array.from(pixels.values()).filter(
+      (p) => p.status === "free"
+    );
+
+    if (free.length === 0) {
+      alert("No free pixels remaining!");
+      return;
+    }
+
+    const randomPixel = free[Math.floor(Math.random() * free.length)];
+
+    setSelected(new Set([randomPixel.id]));
+    setActivePixels([randomPixel.id]);
   };
 
   return (
@@ -79,25 +110,35 @@ export default function App() {
           </button>
         </div>
 
+        {/* RANDOM BUTTON */}
+        <button
+          onClick={handleRandomPixel}
+          className="bg-purple-600 px-3 py-1 rounded"
+        >
+          Random Pixel
+        </button>
+
+        {/* Admin button */}
+        <a href="/admin" className="ml-auto bg-red-600 px-3 py-1 rounded">
+          Admin
+        </a>
+
         {/* Claimed counter */}
-        <div className="text-sm ml-auto text-gray-300">
+        <div className="text-sm text-gray-300 ml-4">
           <span className="font-bold text-green-400">{usedCount}</span>
           / 1,000,000 claimed
         </div>
       </header>
 
-      {/* GRID */}
+      {/* GRID CANVAS */}
       <PixelGrid
         pixels={pixels}
         searchedPixel={searchedPixel}
         selected={selected}
         onPixelSelect={toggleSelect}
         onHover={(pixel, x, y) => {
-          if (pixel) {
-            setHoverInfo({ pixel, x, y });
-          } else {
-            setHoverInfo(null);
-          }
+          if (pixel) setHoverInfo({ pixel, x, y });
+          else setHoverInfo(null);
         }}
       />
 
@@ -112,7 +153,9 @@ export default function App() {
           }}
         >
           <div className="font-bold mb-1">Pixel #{hoverInfo.pixel.id}</div>
-          <div className="text-xs text-gray-400">Status: {hoverInfo.pixel.status}</div>
+          <div className="text-xs text-gray-400">
+            Status: {hoverInfo.pixel.status}
+          </div>
 
           {hoverInfo.pixel.status === "sold" && (
             <>
