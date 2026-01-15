@@ -1,12 +1,14 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
-import Admin from './src/Admin';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
 
-const isAdmin = window.location.pathname === '/admin';
+// Admin is now handled from /admin folder through routing, not imports.
+// DO NOT IMPORT ADMIN HERE.
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+
+root.render(
   <React.StrictMode>
-    {isAdmin ? <Admin /> : <App />}
+    <App />
   </React.StrictMode>
 );
