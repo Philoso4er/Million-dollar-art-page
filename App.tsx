@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import PixelGrid from "./components/PixelGrid";
-import PaymentModal from "./src/components/PaymentModal"; // ← correct path!
+import PaymentModal from "./components/PaymentModal"; // ← correct path!
 import { PixelData } from "./types";
 import { loadPixels } from "./src/lib/loadPixels";
 
