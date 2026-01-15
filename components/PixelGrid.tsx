@@ -1,132 +1,156 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import { PixelData } from "../types";
-
-const GRID_SIZE = 1000;
 
 interface Props {
   pixels: Map<number, PixelData>;
-  searchedPixel: number | null;
   selected: Set<number>;
+  searchedPixel: number | null;
   onPixelSelect: (id: number) => void;
   onHover: (pixel: PixelData | null, x: number, y: number) => void;
 }
 
+const GRID_WIDTH = 1000;   // 1000 x 1000 = 1,000,000 pixels
+const GRID_HEIGHT = 1000;
+const PIXEL_SIZE = 1;       // 1px on canvas
+
 export default function PixelGrid({
   pixels,
-  searchedPixel,
   selected,
+  searchedPixel,
   onPixelSelect,
   onHover,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  const [camera, setCamera] = useState({
-    x: 0,
-    y: 0,
-    zoom: 1,
-  });
+  // Pan state
+  const offset = useRef({ x: 0, y: 0 });
+  const dragging = useRef(false);
+  const lastPos = useRef({ x: 0, y: 0 });
 
-  const drag = useRef(false);
-  const last = useRef({ x: 0, y: 0 });
-
-  const draw = () => {
+  /** Draw entire grid */
+  const drawGrid = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!canvas || pixels.size === 0) return;
 
-    ctx.imageSmoothingEnabled = false;
+    const ctx = ctxRef.current!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    ctx.save();
-    ctx.translate(camera.x, camera.y);
-    ctx.scale(camera.zoom, camera.zoom);
-
-    // Grid background
-    ctx.fillStyle = "#111";
-    ctx.fillRect(0, 0, GRID_SIZE, GRID_SIZE);
-
-    // Draw pixels
     pixels.forEach((p) => {
-      const x = p.id % GRID_SIZE;
-      const y = Math.floor(p.id / GRID_SIZE);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(x, y, 1, 1);
+      const x = p.id % GRID_WIDTH;
+      const y = Math.floor(p.id / GRID_WIDTH);
+
+      ctx.fillStyle =
+        p.status === "sold"
+          ? p.color
+          : p.status === "reserved"
+          ? "#333333"
+          : "#111111";
+
+      ctx.fillRect(
+        x * PIXEL_SIZE + offset.current.x,
+        y * PIXEL_SIZE + offset.current.y,
+        PIXEL_SIZE,
+        PIXEL_SIZE
+      );
     });
 
-    // Selected outline
+    // highlight selected pixels
     selected.forEach((id) => {
-      const x = id % GRID_SIZE;
-      const y = Math.floor(id / GRID_SIZE);
-      ctx.strokeStyle = "#00ffff";
-      ctx.lineWidth = 1 / camera.zoom;
-      ctx.strokeRect(x - 0.5, y - 0.5, 2, 2);
+      const x = id % GRID_WIDTH;
+      const y = Math.floor(id / GRID_WIDTH);
+
+      ctx.strokeStyle = "yellow";
+      ctx.strokeRect(
+        x * PIXEL_SIZE + offset.current.x - 1,
+        y * PIXEL_SIZE + offset.current.y - 1,
+        PIXEL_SIZE + 2,
+        PIXEL_SIZE + 2
+      );
     });
 
-    // Highlight searched pixel
+    // highlight searched pixel
     if (searchedPixel !== null) {
-      const x = searchedPixel % GRID_SIZE;
-      const y = Math.floor(searchedPixel / GRID_SIZE);
-      ctx.strokeStyle = "yellow";
-      ctx.lineWidth = 2 / camera.zoom;
-      ctx.strokeRect(x - 1, y - 1, 3, 3);
+      const x = searchedPixel % GRID_WIDTH;
+      const y = Math.floor(searchedPixel / GRID_WIDTH);
+
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        x * PIXEL_SIZE + offset.current.x - 2,
+        y * PIXEL_SIZE + offset.current.y - 2,
+        PIXEL_SIZE + 4,
+        PIXEL_SIZE + 4
+      );
     }
-
-    ctx.restore();
   };
 
-  useEffect(draw, [pixels, selected, searchedPixel, camera]);
+  /** Resize canvas to window */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  const screenToId = (clientX: number, clientY: number) => {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-    const x = (clientX - rect.left - camera.x) / camera.zoom;
-    const y = (clientY - rect.top - camera.y) / camera.zoom;
+    ctxRef.current = canvas.getContext("2d")!;
+    drawGrid();
+  }, [pixels, selected, searchedPixel]);
 
-    if (x < 0 || y < 0 || x >= GRID_SIZE || y >= GRID_SIZE) return null;
-    return Math.floor(y) * GRID_SIZE + Math.floor(x);
-  };
+  /** Mouse interactions */
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-  return (
-    <canvas
-      ref={canvasRef}
-      width={1000}
-      height={1000}
-      className="w-full h-full"
-      onWheel={(e) => {
-        e.preventDefault();
-        const zoom = camera.zoom * (e.deltaY > 0 ? 0.9 : 1.1);
-        setCamera((c) => ({ ...c, zoom }));
-      }}
-      onMouseDown={(e) => {
-        drag.current = true;
-        last.current = { x: e.clientX, y: e.clientY };
-      }}
-      onMouseMove={(e) => {
-        if (drag.current) {
-          setCamera((c) => ({
-            ...c,
-            x: c.x + (e.clientX - last.current.x),
-            y: c.y + (e.clientY - last.current.y),
-          }));
-          last.current = { x: e.clientX, y: e.clientY };
-        }
+    /* DRAG PAN */
+    const onMouseDown = (e: MouseEvent) => {
+      dragging.current = true;
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    };
 
-        const id = screenToId(e.clientX, e.clientY);
-        if (id !== null) {
-          const p = pixels.get(id) || { id, color: "#333", link: "", status: "free" };
-          onHover(p, e.clientX, e.clientY);
-        } else {
-          onHover(null, 0, 0);
-        }
-      }}
-      onMouseUp={() => (drag.current = false)}
-      onMouseLeave={() => (drag.current = false)}
-      onClick={(e) => {
-        const id = screenToId(e.clientX, e.clientY);
-        if (id !== null) onPixelSelect(id);
-      }}
-    />
-  );
+    const onMouseUp = () => {
+      dragging.current = false;
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (dragging.current) {
+        offset.current.x += e.clientX - lastPos.current.x;
+        offset.current.y += e.clientY - lastPos.current.y;
+        lastPos.current = { x: e.clientX, y: e.clientY };
+        drawGrid();
+      } else {
+        const gridX = Math.floor((e.clientX - offset.current.x) / PIXEL_SIZE);
+        const gridY = Math.floor((e.clientY - offset.current.y) / PIXEL_SIZE);
+        const id = gridY * GRID_WIDTH + gridX;
+
+        const pixel = pixels.get(id);
+        onHover(pixel || null, e.clientX, e.clientY);
+      }
+    };
+
+    /* CLICK SELECT */
+    const onClick = (e: MouseEvent) => {
+      const x = Math.floor((e.clientX - offset.current.x) / PIXEL_SIZE);
+      const y = Math.floor((e.clientY - offset.current.y) / PIXEL_SIZE);
+      const id = y * GRID_WIDTH + x;
+
+      if (pixels.has(id)) {
+        onPixelSelect(id);
+      }
+    };
+
+    canvas.addEventListener("mousedown", onMouseDown);
+    canvas.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("mousemove", onMouseMove);
+    canvas.addEventListener("click", onClick);
+
+    return () => {
+      canvas.removeEventListener("mousedown", onMouseDown);
+      canvas.removeEventListener("mouseup", onMouseUp);
+      canvas.removeEventListener("mousemove", onMouseMove);
+      canvas.removeEventListener("click", onClick);
+    };
+  }, [pixels]);
+
+  return <canvas ref={canvasRef} className="absolute top-0 left-0" />;
 }
