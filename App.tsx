@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import PixelGrid from "./components/PixelGrid";
-import PaymentModal from "./components/PaymentModal";
+import PaymentModal from "./src/components/PaymentModal"; // ← correct path!
 import { PixelData } from "./types";
 import { loadPixels } from "./src/lib/loadPixels";
 
@@ -22,21 +22,21 @@ export default function App() {
     y: number;
   } | null>(null);
 
-  /* Load grid and count sold/reserved pixels */
+  /* ---------- LOAD PIXELS + COUNT USED ---------- */
   useEffect(() => {
     loadPixels().then((map) => {
       setPixels(map);
 
       let used = 0;
       map.forEach((p) => {
-        if (p.status === "sold" || p.status === "reserved") {
-          used++;
-        }
+        if (p.status === "sold" || p.status === "reserved") used++;
       });
+
       setUsedCount(used);
     });
   }, []);
 
+  /* ---------- SELECT PIXELS ---------- */
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -45,20 +45,25 @@ export default function App() {
     });
   };
 
+  /* ---------- SEARCH PIXEL ---------- */
   const handleSearch = () => {
     const id = Number(searchInput);
+
     if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
       alert("Invalid pixel ID");
       return;
     }
+
     setSearchedPixel(id);
   };
 
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
 
-      {/* Header */}
+      {/* ---------- HEADER ---------- */}
       <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex items-center gap-4">
+
+        {/* Search bar */}
         <div className="flex gap-2">
           <input
             value={searchInput}
@@ -67,18 +72,23 @@ export default function App() {
             placeholder="Search pixel #"
             className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
           />
-          <button onClick={handleSearch} className="bg-blue-600 px-3 py-1 rounded">
+
+          <button
+            onClick={handleSearch}
+            className="bg-blue-600 px-3 py-1 rounded"
+          >
             Search
           </button>
         </div>
 
+        {/* Claimed counter */}
         <div className="text-sm ml-auto text-gray-300">
-          <span className="font-bold text-green-400">{usedCount}</span> /
-          <span className="text-gray-400">1,000,000 claimed</span>
+          <span className="font-bold text-green-400">{usedCount}</span>
+          <span className="text-gray-400"> / 1,000,000 claimed</span>
         </div>
       </header>
 
-      {/* PIXEL GRID */}
+      {/* ---------- PIXEL GRID ---------- */}
       <PixelGrid
         pixels={pixels}
         searchedPixel={searchedPixel}
@@ -90,7 +100,7 @@ export default function App() {
         }}
       />
 
-      {/* HOVER TOOLTIP */}
+      {/* ---------- HOVER TOOLTIP ---------- */}
       {hoverInfo && (
         <div
           className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg z-50 pointer-events-none"
@@ -121,7 +131,7 @@ export default function App() {
         </div>
       )}
 
-      {/* SELECTION BAR */}
+      {/* ---------- SELECTION BAR ---------- */}
       {selected.size > 0 && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4">
           <span>{selected.size} selected</span>
@@ -142,7 +152,7 @@ export default function App() {
         </div>
       )}
 
-      {/* PAYMENT MODAL */}
+      {/* ---------- PAYMENT MODAL ---------- */}
       {activePixels && (
         <PaymentModal
           pixelIds={activePixels}
@@ -152,6 +162,7 @@ export default function App() {
           }}
         />
       )}
+
     </div>
   );
 }
