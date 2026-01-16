@@ -1,209 +1,83 @@
-import React, { useEffect, useState, useRef } from "react";
-import PixelGrid from "./components/PixelGrid";
-import PaymentModal from "./components/PaymentModal";
-import { PixelData } from "./types";
-import { loadPixels } from "./src/lib/loadPixels";
+import React, { useEffect, useRef } from "react";
+import { PixelData } from "../types";
 
-const TOTAL_PIXELS = 1_000_000;
+const GRID_SIZE = 1000;
 
-export default function App() {
-  const [pixels, setPixels] = useState<Map<number, PixelData>>(new Map());
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [activePixels, setActivePixels] = useState<number[] | null>(null);
+interface Props {
+  pixels: Map<number, PixelData>;
+  selected: Set<number>;
+  searchedPixel: number | null;
+  onPixelSelect: (id: number) => void;
+  onHover: (pixel: PixelData | null, x: number, y: number) => void;
+}
 
-  const [usedCount, setUsedCount] = useState(0);
+export default function PixelGrid({
+  pixels,
+  selected,
+  searchedPixel,
+  onPixelSelect,
+  onHover,
+}: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const [searchInput, setSearchInput] = useState("");
-  const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
-
-  const [hoverInfo, setHoverInfo] = useState<{
-    pixel: PixelData;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  // IMPORTANT: Stores grid offset for centering search result
-  const offset = useRef({ x: 0, y: 0 });
-
-  /* Load all pixel data and compute claimed count */
   useEffect(() => {
-    loadPixels().then((map) => {
-      setPixels(map);
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
 
-      let used = 0;
-      map.forEach((p) => {
-        if (p.status === "sold" || p.status === "reserved") used++;
-      });
-      setUsedCount(used);
+    canvas.width = 1000;
+    canvas.height = 1000;
+
+    ctx.fillStyle = "#111";
+    ctx.fillRect(0, 0, 1000, 1000);
+
+    pixels.forEach((p) => {
+      const x = p.id % GRID_SIZE;
+      const y = Math.floor(p.id / GRID_SIZE);
+      ctx.fillStyle = p.color || "#333";
+      ctx.fillRect(x, y, 1, 1);
     });
-  }, []);
 
-  /* Toggle selecting a pixel */
-  const toggleSelect = (id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  /* Search and auto-center pixel */
-  const handleSearch = () => {
-    const id = Number(searchInput);
-
-    if (!Number.isInteger(id) || id < 0 || id >= TOTAL_PIXELS) {
-      alert("Invalid pixel ID");
-      return;
+    if (searchedPixel !== null) {
+      const x = searchedPixel % GRID_SIZE;
+      const y = Math.floor(searchedPixel / GRID_SIZE);
+      ctx.strokeStyle = "yellow";
+      ctx.strokeRect(x, y, 1, 1);
     }
 
-    setSearchedPixel(id);
-
-    const x = id % 1000;
-    const y = Math.floor(id / 1000);
-
-    // Center this pixel when possible
-    requestAnimationFrame(() => {
-      offset.current = {
-        x: window.innerWidth / 2 - x,
-        y: window.innerHeight / 2 - y,
-      };
+    selected.forEach((id) => {
+      const x = id % GRID_SIZE;
+      const y = Math.floor(id / GRID_SIZE);
+      ctx.strokeStyle = "#00ffcc";
+      ctx.strokeRect(x, y, 1, 1);
     });
+  }, [pixels, selected, searchedPixel]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) * (1000 / rect.width));
+    const y = Math.floor((e.clientY - rect.top) * (1000 / rect.height));
+    const id = y * GRID_SIZE + x;
+    if (pixels.has(id)) onHover(pixels.get(id)!, e.clientX, e.clientY);
+    else onHover(null, 0, 0);
   };
 
-  /* Random free pixel selection */
-  const handleRandomPixel = () => {
-    const free = Array.from(pixels.values()).filter(
-      (p) => p.status === "free"
-    );
-
-    if (free.length === 0) {
-      alert("No free pixels remaining!");
-      return;
-    }
-
-    const randomPixel = free[Math.floor(Math.random() * free.length)];
-
-    setSelected(new Set([randomPixel.id]));
-    setActivePixels([randomPixel.id]);
+  const handleClick = (e: React.MouseEvent) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) * (1000 / rect.width));
+    const y = Math.floor((e.clientY - rect.top) * (1000 / rect.height));
+    onPixelSelect(y * GRID_SIZE + x);
   };
 
   return (
-    <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
-
-      {/* HEADER */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-gray-900 border-b border-gray-700 p-3 flex items-center gap-4">
-
-        {/* Search */}
-        <div className="flex gap-2">
-          <input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder="Search pixel #"
-            className="bg-gray-800 border border-gray-600 rounded px-2 py-1 w-40"
-          />
-          <button
-            onClick={handleSearch}
-            className="bg-blue-600 px-3 py-1 rounded"
-          >
-            Search
-          </button>
-        </div>
-
-        {/* RANDOM BUTTON */}
-        <button
-          onClick={handleRandomPixel}
-          className="bg-purple-600 px-3 py-1 rounded"
-        >
-          Random Pixel
-        </button>
-
-        {/* Admin button */}
-        <a href="/admin" className="ml-auto bg-red-600 px-3 py-1 rounded">
-          Admin
-        </a>
-
-        {/* Claimed counter */}
-        <div className="text-sm text-gray-300 ml-4">
-          <span className="font-bold text-green-400">{usedCount}</span>
-          / 1,000,000 claimed
-        </div>
-      </header>
-
-      {/* GRID CANVAS */}
-      <PixelGrid
-        pixels={pixels}
-        searchedPixel={searchedPixel}
-        selected={selected}
-        onPixelSelect={toggleSelect}
-        onHover={(pixel, x, y) => {
-          if (pixel) setHoverInfo({ pixel, x, y });
-          else setHoverInfo(null);
-        }}
+    <div className="flex justify-center items-center h-full pt-14">
+      <canvas
+        ref={canvasRef}
+        className="border border-gray-700"
+        style={{ width: 600, height: 600 }}
+        onMouseMove={handleMouseMove}
+        onClick={handleClick}
       />
-
-      {/* Hover tooltip */}
-      {hoverInfo && (
-        <div
-          className="fixed bg-gray-900 border border-gray-700 p-2 rounded shadow-lg z-50 pointer-events-none"
-          style={{
-            top: hoverInfo.y + 15,
-            left: hoverInfo.x + 15,
-            maxWidth: "200px",
-          }}
-        >
-          <div className="font-bold mb-1">Pixel #{hoverInfo.pixel.id}</div>
-          <div className="text-xs text-gray-400">
-            Status: {hoverInfo.pixel.status}
-          </div>
-
-          {hoverInfo.pixel.status === "sold" && (
-            <>
-              <div className="mt-1 text-xs">Color: {hoverInfo.pixel.color}</div>
-              <a
-                href={hoverInfo.pixel.link}
-                className="text-blue-400 underline text-xs break-all"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {hoverInfo.pixel.link}
-              </a>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Selection Bar */}
-      {selected.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border border-gray-700 px-4 py-2 rounded flex gap-4">
-          <span>{selected.size} selected</span>
-
-          <button
-            onClick={() => setActivePixels([...selected])}
-            className="bg-green-600 px-3 py-1 rounded"
-          >
-            Buy Selected
-          </button>
-
-          <button
-            onClick={() => setSelected(new Set())}
-            className="bg-gray-700 px-3 py-1 rounded"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      {/* PAYMENT MODAL */}
-      {activePixels && (
-        <PaymentModal
-          pixelIds={activePixels}
-          onClose={() => {
-            setActivePixels(null);
-            setSelected(new Set());
-          }}
-        />
-      )}
     </div>
   );
 }
