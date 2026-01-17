@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { supabase } from './src/lib/supabase';
 
 // Load Flutterwave script
 const loadFlutterwaveScript = () => {
@@ -185,7 +184,7 @@ function PaymentModal({
       ? { pixelIds, mode, color: syncColor, link: syncLink }
       : { pixelIds, mode, individual: individualData };
 
-    const res = await fetch('/api/create-order', {
+    const res = await fetch('/api/orders?action=create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -529,7 +528,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
   const loadOrders = async () => {
     try {
-      const res = await fetch('/api/admin-orders');
+      const res = await fetch('/api/orders?action=list');
       const data = await res.json();
       setOrders(data.orders || []);
     } catch (err) {
@@ -541,7 +540,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/api/admin/pixels');
+      const res = await fetch('/api/pixels?action=stats');
       const data = await res.json();
       setStats(data);
     } catch (err) {
@@ -553,7 +552,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     if (!confirm('Mark this order as paid and assign pixels?')) return;
 
     try {
-      const res = await fetch('/api/admin/update-order', {
+      const res = await fetch('/api/orders?action=update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId: id }),
@@ -726,21 +725,15 @@ export default function PixelApp() {
     if (auth === 'true') setIsAdmin(true);
   }, []);
 
-  // Load pixels from Supabase
+  // Load pixels from database
   useEffect(() => {
     loadPixelsFromDatabase();
   }, []);
 
   const loadPixelsFromDatabase = async () => {
     try {
-      const { data, error } = await supabase
-        .from('pixels')
-        .select('pixel_id, color, link, status');
-
-      if (error) {
-        console.error('Failed to load pixels:', error);
-        return;
-      }
+      const res = await fetch('/api/pixels');
+      const { pixels: data } = await res.json();
 
       const pixelMap = new Map<number, PixelData>();
       let soldCount = 0;
