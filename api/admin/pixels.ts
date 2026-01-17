@@ -1,13 +1,20 @@
-import { supabase } from "../../src/lib/supabase";
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export default async function handler(req: any, res: any) {
-  const { data } = await supabase
-    .from("pixels")
-    .select("status");
+  const { data } = await supabase.from('pixels').select('status');
 
-  const stats = { free: 0, reserved: 0, sold: 0 };
+  const stats = { free: 1000000, reserved: 0, sold: 0 };
 
-  data.forEach((p: any) => stats[p.status]++);
+  if (data) {
+    stats.reserved = data.filter((p: any) => p.status === 'reserved').length;
+    stats.sold = data.filter((p: any) => p.status === 'sold').length;
+    stats.free = 1000000 - stats.reserved - stats.sold;
+  }
 
-  res.status(200).json(stats);
+  return res.status(200).json(stats);
 }
