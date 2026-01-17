@@ -722,4 +722,231 @@ export default function PixelApp() {
 
   // Check admin auth on mount
   useEffect(() => {
-    const auth = localStorage.getItem('
+    const auth = localStorage.getItem('admin_auth');
+    if (auth === 'true') setIsAdmin(true);
+  }, []);
+
+  // Load pixels from Supabase
+  useEffect(() => {
+    loadPixelsFromDatabase();
+  }, []);
+
+  const loadPixelsFromDatabase = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('pixels')
+        .select('pixel_id, color, link, status');
+
+      if (error) {
+        console.error('Failed to load pixels:', error);
+        return;
+      }
+
+      const pixelMap = new Map<number, PixelData>();
+      let soldCount = 0;
+
+      if (data) {
+        data.forEach((row: any) => {
+          if (row.status === 'sold' || row.status === 'reserved') {
+            pixelMap.set(row.pixel_id, {
+              id: row.pixel_id,
+              color: row.color || '#666666',
+              link: row.link || '',
+              status: row.status
+            });
+            if (row.status === 'sold') soldCount++;
+          }
+        });
+      }
+
+      setPixels(pixelMap);
+      setClaimedCount(soldCount);
+    } catch (err) {
+      console.error('Error loading pixels:', err);
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSearch = () => {
+    const id = Number(searchInput);
+    if (!isNaN(id) && id >= 0 && id < TOTAL_PIXELS) {
+      setSearchedPixel(id);
+      setSelected(new Set([id]));
+    }
+  };
+
+  const buyRandom = () => {
+    // Find first available pixel
+    for (let i = 0; i < TOTAL_PIXELS; i++) {
+      if (!pixels.has(i) || pixels.get(i)?.status === 'free') {
+        setSelected(new Set([i]));
+        setSearchedPixel(i);
+        setActivePixels([i]);
+        return;
+      }
+    }
+    alert('No free pixels available');
+  };
+
+  const handlePaymentSuccess = () => {
+    // Reload pixels after successful payment
+    loadPixelsFromDatabase();
+    setSelected(new Set());
+    setActivePixels(null);
+  };
+
+  // Admin Login Screen
+  if (showAdmin && !isAdmin) {
+    return (
+      <AdminLogin 
+        onSuccess={() => {
+          setIsAdmin(true);
+          setShowAdmin(true);
+        }} 
+      />
+    );
+  }
+
+  // Admin Dashboard Screen
+  if (showAdmin && isAdmin) {
+    return (
+      <AdminDashboard 
+        onLogout={() => {
+          localStorage.removeItem('admin_auth');
+          setIsAdmin(false);
+          setShowAdmin(false);
+        }} 
+      />
+    );
+  }
+
+  // Main Pixel Grid Screen
+  return (
+    <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
+      {/* Header */}
+      <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+        <h1 className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+          Million Pixel Grid
+        </h1>
+        
+        <input
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          placeholder="Pixel #"
+          className="bg-gray-800 border border-gray-700 rounded px-3 py-2 w-32 focus:border-cyan-500 focus:outline-none"
+        />
+        
+        <button
+          onClick={handleSearch}
+          className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded font-semibold transition"
+        >
+          Search
+        </button>
+        
+        <button
+          onClick={buyRandom}
+          className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded font-semibold transition"
+        >
+          🎲 Random
+        </button>
+        
+        <div className="ml-auto text-sm text-gray-300">
+          <span className="font-bold text-green-400">
+            {claimedCount.toLocaleString()}
+          </span>
+          {' / '}
+          {TOTAL_PIXELS.toLocaleString()} claimed
+        </div>
+        
+        <button
+          onClick={() => setShowAdmin(true)}
+          className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded font-semibold transition"
+        >
+          Admin
+        </button>
+      </header>
+
+      {/* Pixel Grid */}
+      <div className="flex-1 overflow-hidden">
+        <PixelGrid
+          pixels={pixels}
+          searchedPixel={searchedPixel}
+          selected={selected}
+          onPixelSelect={toggleSelect}
+          onHover={(pixel, x, y) => setHovered(pixel ? { pixel, x, y } : null)}
+        />
+      </div>
+
+      {/* Hover Tooltip */}
+      {hovered && hovered.pixel && (
+        <div
+          className="fixed bg-gray-900 border-2 border-cyan-500/50 rounded-lg px-4 py-3 text-sm pointer-events-none shadow-2xl z-40"
+          style={{ left: hovered.x + 16, top: hovered.y + 16 }}
+        >
+          <div className="font-bold text-cyan-300">
+            Pixel #{hovered.pixel.id}
+          </div>
+          <div className={`text-sm ${
+            hovered.pixel.status === 'sold' ? 'text-red-400' : 
+            hovered.pixel.status === 'reserved' ? 'text-yellow-400' : 
+            'text-green-400'
+          }`}>
+            {hovered.pixel.status === 'sold' ? '🔴 Sold' : 
+             hovered.pixel.status === 'reserved' ? '🟡 Reserved' :
+             '🟢 Available'}
+          </div>
+          {hovered.pixel.link && (
+            <div className="text-blue-400 text-xs truncate max-w-[200px]">
+              {hovered.pixel.link}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Selected Pixels Bar */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-6 py-4 shadow-2xl shadow-cyan-500/20 flex items-center gap-4">
+          <span className="font-bold text-lg">
+            {selected.size} pixel{selected.size > 1 ? 's' : ''} selected
+          </span>
+          <button
+            onClick={() => setActivePixels([...selected])}
+            className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/50 transition"
+          >
+            💰 Buy Now
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {activePixels && (
+        <PaymentModal
+          pixelIds={activePixels}
+          onClose={() => {
+            setActivePixels(null);
+            setSelected(new Set());
+          }}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
+    </div>
+  );
+}
