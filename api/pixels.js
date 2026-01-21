@@ -1,10 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -16,12 +11,31 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
+  // Check environment variables
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Missing Supabase environment variables');
+    return res.status(500).json({ 
+      error: 'Server configuration error',
+      details: 'Missing Supabase credentials'
+    });
+  }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
   const { action } = req.query;
 
   try {
     // GET PIXEL STATS
     if (action === 'stats' && req.method === 'GET') {
-      const { data } = await supabase.from('pixels').select('status');
+      const { data, error } = await supabase.from('pixels').select('status');
+
+      if (error) {
+        console.error('Stats fetch error:', error);
+        return res.status(500).json({ error: error.message });
+      }
 
       const stats = { free: 1000000, reserved: 0, sold: 0 };
 
@@ -51,6 +65,9 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
   } catch (err) {
     console.error('API Error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: err.message
+    });
   }
 };
