@@ -184,21 +184,38 @@ function PaymentModal({
       ? { pixelIds, mode, color: syncColor, link: syncLink }
       : { pixelIds, mode, individual: individualData };
 
-    const res = await fetch('/api/orders?action=create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch('/api/orders?action=create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to create order');
-    return data;
+      // Check if response is JSON
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Non-JSON response received');
+        const text = await res.text();
+        console.error('Response text:', text);
+        throw new Error('Server error - please check your API configuration');
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create order');
+      return data;
+    } catch (err: any) {
+      console.error('Create order error:', err);
+      throw err;
+    }
   };
 
   const handleCardPayment = async () => {
     setLoading(true);
     try {
       const data = await createOrder();
+      
+      console.log('Order created:', data);
+      
       const FLW = (window as any).FlutterwaveCheckout;
       
       if (!FLW) {
@@ -207,8 +224,18 @@ function PaymentModal({
         return;
       }
 
+      const publicKey = import.meta.env.VITE_FLW_PUBLIC_KEY;
+      
+      if (!publicKey || publicKey === 'FLWPUBK_TEST-XXXXX') {
+        alert('⚠️ Payment gateway not configured. Please add VITE_FLW_PUBLIC_KEY to your environment variables.');
+        setLoading(false);
+        return;
+      }
+
+      console.log('Initializing Flutterwave with reference:', data.reference);
+
       FLW({
-        public_key: import.meta.env.VITE_FLW_PUBLIC_KEY || 'FLWPUBK_TEST-XXXXX',
+        public_key: publicKey,
         tx_ref: data.reference,
         amount: pixelIds.length,
         currency: 'USD',
@@ -219,10 +246,11 @@ function PaymentModal({
         },
         customizations: {
           title: 'Million Pixel Grid',
-          description: `${pixelIds.length} pixels - $${pixelIds.length}`,
+          description: `${pixelIds.length} pixels - ${pixelIds.length}`,
           logo: '',
         },
         callback: (payment: any) => {
+          console.log('Payment callback:', payment);
           if (payment.status === 'successful') {
             setTimeout(() => {
               onSuccess();
@@ -230,10 +258,14 @@ function PaymentModal({
             }, 1000);
           }
         },
-        onclose: () => setLoading(false),
+        onclose: () => {
+          console.log('Payment modal closed');
+          setLoading(false);
+        },
       });
     } catch (err: any) {
-      alert(err.message);
+      console.error('Payment error:', err);
+      alert('Error: ' + err.message);
       setLoading(false);
     }
   };
