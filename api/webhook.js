@@ -1,20 +1,22 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(500).json({ error: 'Server configuration error' });
+  }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
   try {
-    // Verify webhook signature
     const signature = req.headers['verif-hash'];
     if (!signature || signature !== process.env.FLW_WEBHOOK_HASH) {
-      console.error('Invalid webhook signature');
       return res.status(401).json({ error: 'Invalid signature' });
     }
 
@@ -26,7 +28,6 @@ module.exports = async (req, res) => {
 
     const reference = data.tx_ref;
 
-    // Find order
     const { data: order } = await supabase
       .from('orders')
       .select('*')
@@ -37,13 +38,11 @@ module.exports = async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Mark order as paid
     await supabase
       .from('orders')
       .update({ status: 'paid' })
       .eq('id', order.id);
 
-    // Update pixels to sold
     const pixelUpdates = order.pixel_ids.map(pixelId => {
       let pixelColor = order.color;
       let pixelLink = order.link;
@@ -72,4 +71,4 @@ module.exports = async (req, res) => {
     console.error('Webhook error:', err);
     return res.status(500).json({ error: err.message });
   }
-};
+}
