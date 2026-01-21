@@ -1,11 +1,12 @@
-import { createClient } from '@supabase/supabase-js';
+const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-export default async function handler(req: any, res: any) {
+module.exports = async (req, res) => {
+  // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -18,6 +19,7 @@ export default async function handler(req: any, res: any) {
   const { action } = req.query;
 
   try {
+    // CREATE ORDER
     if (action === 'create' && req.method === 'POST') {
       const { pixelIds, mode, color, link, individual } = req.body;
 
@@ -25,12 +27,13 @@ export default async function handler(req: any, res: any) {
         return res.status(400).json({ error: 'Invalid pixel selection' });
       }
 
+      // Check availability
       const { data: existing } = await supabase
         .from('pixels')
         .select('pixel_id, status')
         .in('pixel_id', pixelIds);
 
-      const occupied = existing?.filter((p: any) => p.status !== 'free' && p.status !== null);
+      const occupied = existing?.filter(p => p.status !== 'free' && p.status !== null);
       if (occupied && occupied.length > 0) {
         return res.status(409).json({ error: 'Some pixels are unavailable' });
       }
@@ -38,6 +41,7 @@ export default async function handler(req: any, res: any) {
       const reference = 'PIX-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
       const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
+      // Create order
       const { data: order, error } = await supabase
         .from('orders')
         .insert({
@@ -58,8 +62,9 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ error: error.message });
       }
 
+      // Reserve pixels
       await supabase.from('pixels').upsert(
-        pixelIds.map((id: number) => ({
+        pixelIds.map(id => ({
           pixel_id: id,
           status: 'reserved',
           order_id: order.id,
@@ -69,6 +74,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ reference, order_id: order.id });
     }
 
+    // GET ALL ORDERS (Admin)
     if (action === 'list' && req.method === 'GET') {
       const { data, error } = await supabase
         .from('orders')
@@ -79,9 +85,11 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ orders: data || [] });
     }
 
+    // UPDATE ORDER STATUS (Admin - Mark as Paid)
     if (action === 'update' && req.method === 'POST') {
       const { orderId } = req.body;
 
+      // Get order details
       const { data: order } = await supabase
         .from('orders')
         .select('*')
@@ -90,17 +98,19 @@ export default async function handler(req: any, res: any) {
 
       if (!order) return res.status(404).json({ error: 'Order not found' });
 
+      // Mark order as paid
       await supabase
         .from('orders')
         .update({ status: 'paid' })
         .eq('id', orderId);
 
-      const pixelUpdates = order.pixel_ids.map((pixelId: number) => {
+      // Update pixels to sold
+      const pixelUpdates = order.pixel_ids.map(pixelId => {
         let pixelColor = order.color;
         let pixelLink = order.link;
 
         if (order.individual_data) {
-          const individualPixel = order.individual_data.find((p: any) => p.id === pixelId);
+          const individualPixel = order.individual_data.find(p => p.id === pixelId);
           if (individualPixel) {
             pixelColor = individualPixel.color;
             pixelLink = individualPixel.link;
@@ -121,8 +131,8 @@ export default async function handler(req: any, res: any) {
     }
 
     return res.status(400).json({ error: 'Invalid action' });
-  } catch (err: any) {
+  } catch (err) {
     console.error('API Error:', err);
     return res.status(500).json({ error: err.message });
   }
-}
+};
