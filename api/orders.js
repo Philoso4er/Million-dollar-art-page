@@ -188,6 +188,39 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // DELETE ORDER (Admin)
+    if (action === 'delete' && req.method === 'POST') {
+      const { orderId } = req.body;
+
+      // Get order details
+      const { data: order } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (!order) return res.status(404).json({ error: 'Order not found' });
+
+      // Free the pixels
+      await supabase
+        .from('pixels')
+        .update({ 
+          status: 'free', 
+          order_id: null, 
+          color: null, 
+          link: null 
+        })
+        .in('pixel_id', order.pixel_ids);
+
+      // Delete the order
+      await supabase
+        .from('orders')
+        .delete()
+        .eq('id', orderId);
+
+      return res.status(200).json({ ok: true, message: 'Order deleted and pixels freed' });
+    }
+
     // CLEANUP EXPIRED ORDERS (Manual trigger)
     if (action === 'cleanup' && req.method === 'POST') {
       await cleanupExpiredOrders();
