@@ -1,10 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -15,6 +10,23 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
+
+  // Check environment variables
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Missing Supabase environment variables');
+    return res.status(500).json({ 
+      error: 'Server configuration error - missing Supabase credentials',
+      details: {
+        hasUrl: !!process.env.SUPABASE_URL,
+        hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+      }
+    });
+  }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
 
   const { action } = req.query;
 
@@ -28,10 +40,15 @@ module.exports = async (req, res) => {
       }
 
       // Check availability
-      const { data: existing } = await supabase
+      const { data: existing, error: fetchError } = await supabase
         .from('pixels')
         .select('pixel_id, status')
         .in('pixel_id', pixelIds);
+
+      if (fetchError) {
+        console.error('Supabase fetch error:', fetchError);
+        return res.status(500).json({ error: 'Database error: ' + fetchError.message });
+      }
 
       const occupied = existing?.filter(p => p.status !== 'free' && p.status !== null);
       if (occupied && occupied.length > 0) {
@@ -59,17 +76,21 @@ module.exports = async (req, res) => {
 
       if (error) {
         console.error('Order creation error:', error);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: 'Failed to create order: ' + error.message });
       }
 
       // Reserve pixels
-      await supabase.from('pixels').upsert(
+      const { error: reserveError } = await supabase.from('pixels').upsert(
         pixelIds.map(id => ({
           pixel_id: id,
           status: 'reserved',
           order_id: order.id,
         }))
       );
+
+      if (reserveError) {
+        console.error('Pixel reservation error:', reserveError);
+      }
 
       return res.status(200).json({ reference, order_id: order.id });
     }
@@ -90,12 +111,13 @@ module.exports = async (req, res) => {
       const { orderId } = req.body;
 
       // Get order details
-      const { data: order } = await supabase
+      const { data: order, error: fetchError } = await supabase
         .from('orders')
         .select('*')
         .eq('id', orderId)
         .single();
 
+      if (fetchError) return res.status(500).json({ error: fetchError.message });
       if (!order) return res.status(404).json({ error: 'Order not found' });
 
       // Mark order as paid
@@ -133,6 +155,10 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
   } catch (err) {
     console.error('API Error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
