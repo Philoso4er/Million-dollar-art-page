@@ -557,6 +557,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ free: 1000000, reserved: 0, sold: 0 });
+  const [cleanupLoading, setCleanupLoading] = useState(false);
 
   const loadOrders = async () => {
     try {
@@ -580,6 +581,30 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     }
   };
 
+  const manualCleanup = async () => {
+    if (!confirm('Clean up all expired orders and free reserved pixels?')) return;
+    
+    setCleanupLoading(true);
+    try {
+      const res = await fetch('/api/orders?action=cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (res.ok) {
+        alert('✅ Cleanup completed successfully!');
+        loadOrders();
+        loadStats();
+      } else {
+        alert('❌ Cleanup failed');
+      }
+    } catch (err) {
+      alert('❌ Network error');
+    } finally {
+      setCleanupLoading(false);
+    }
+  };
+
   const markPaid = async (id: string) => {
     if (!confirm('Mark this order as paid and assign pixels?')) return;
 
@@ -596,6 +621,28 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
         loadStats();
       } else {
         alert('❌ Failed to update order');
+      }
+    } catch (err) {
+      alert('❌ Network error');
+    }
+  };
+
+  const deleteOrder = async (id: string, reference: string) => {
+    if (!confirm(`Delete order ${reference}? This will free up the reserved pixels.`)) return;
+
+    try {
+      const res = await fetch('/api/orders?action=delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: id }),
+      });
+
+      if (res.ok) {
+        alert('✅ Order deleted and pixels freed!');
+        loadOrders();
+        loadStats();
+      } else {
+        alert('❌ Failed to delete order');
       }
     } catch (err) {
       alert('❌ Network error');
@@ -622,12 +669,21 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
             Admin Dashboard
           </h1>
-          <button
-            onClick={onLogout}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
-          >
-            Logout
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={manualCleanup}
+              disabled={cleanupLoading}
+              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg transition font-semibold disabled:opacity-50"
+            >
+              {cleanupLoading ? '🔄 Cleaning...' : '🧹 Cleanup Expired'}
+            </button>
+            <button
+              onClick={onLogout}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -656,8 +712,14 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
         {/* Orders Table */}
         <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="p-4 border-b border-gray-700">
+          <div className="p-4 border-b border-gray-700 flex justify-between items-center">
             <h2 className="text-xl font-bold">Recent Orders</h2>
+            <button
+              onClick={() => { loadOrders(); loadStats(); }}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm font-semibold"
+            >
+              🔄 Refresh
+            </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -667,14 +729,15 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                   <th className="px-4 py-3 text-left text-sm font-semibold">Pixels</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold">Amount</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold">Status</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold">Expires</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold">Proof</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold">Action</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {orders.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                       No orders yet
                     </td>
                   </tr>
@@ -697,6 +760,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                           {order.status}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-sm text-gray-400">
+                        {new Date(order.expires_at).toLocaleString()}
+                      </td>
                       <td className="px-4 py-3">
                         {order.payment_proof_url ? (
                           <a
@@ -712,22 +778,53 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        {order.status === 'pending' ? (
-                          <button
-                            onClick={() => markPaid(order.id)}
-                            className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm font-semibold transition"
-                          >
-                            Mark Paid
-                          </button>
-                        ) : (
-                          <span className="text-gray-500">—</span>
-                        )}
+                        <div className="flex gap-2">
+                          {order.status === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => markPaid(order.id)}
+                                className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-semibold transition"
+                                title="Mark as paid and assign pixels"
+                              >
+                                ✓ Mark Paid
+                              </button>
+                              <button
+                                onClick={() => deleteOrder(order.id, order.reference)}
+                                className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs font-semibold transition"
+                                title="Delete order and free pixels"
+                              >
+                                × Delete
+                              </button>
+                            </>
+                          )}
+                          {order.status === 'paid' && (
+                            <span className="text-green-400 text-sm">✓ Completed</span>
+                          )}
+                          {order.status === 'expired' && (
+                            <button
+                              onClick={() => deleteOrder(order.id, order.reference)}
+                              className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs font-semibold transition"
+                            >
+                              × Remove
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Debug Info */}
+        <div className="mt-6 bg-gray-900 rounded-lg border border-gray-700 p-4">
+          <h3 className="text-lg font-bold mb-2">Quick Actions</h3>
+          <div className="text-sm text-gray-400 space-y-2">
+            <p>• <strong>Cleanup Expired:</strong> Frees pixels from orders that have expired (older than 20 minutes)</p>
+            <p>• <strong>Mark Paid:</strong> Manually mark an order as paid and assign pixels (for crypto payments)</p>
+            <p>• <strong>Delete:</strong> Remove an order and free its pixels immediately</p>
           </div>
         </div>
       </div>
