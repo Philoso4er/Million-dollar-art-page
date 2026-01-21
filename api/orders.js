@@ -29,23 +29,75 @@ export default async function handler(req, res) {
 
   const { action } = req.query;
 
+  // Helper function to cleanup expired orders
+  async function cleanupExpiredOrders() {
+    try {
+      const now = new Date().toISOString();
+      
+      // Find expired orders
+      const { data: expiredOrders } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('status', 'pending')
+        .lt('expires_at', now);
+
+      if (expiredOrders && expiredOrders.length > 0) {
+        const expiredIds = expiredOrders.map(o => o.id);
+        
+        // Free the pixels
+        await supabase
+          .from('pixels')
+          .update({ 
+            status: 'free', 
+            order_id: null, 
+            color: null, 
+            link: null 
+          })
+          .in('order_id', expiredIds);
+        
+        // Mark orders as expired
+        await supabase
+          .from('orders')
+          .update({ status: 'expired' })
+          .in('id', expiredIds);
+        
+        console.log(`Cleaned up ${expiredIds.length} expired orders`);
+      }
+    } catch (error) {
+      console.error('Cleanup error:', error);
+    }
+  }
+
   try {
     // CREATE ORDER
     if (action === 'create' && req.method === 'POST') {
+      // Cleanup expired orders before creating new one
+      await cleanupExpiredOrders();
+
       const { pixelIds, mode, color, link, individual } = req.body;
 
       if (!Array.isArray(pixelIds) || pixelIds.length === 0) {
         return res.status(400).json({ error: 'Invalid pixel selection' });
       }
 
+      // Check availability - need to check if pixel exists AND is free
       const { data: existing } = await supabase
         .from('pixels')
         .select('pixel_id, status')
         .in('pixel_id', pixelIds);
 
-      const occupied = existing?.filter(p => p.status !== 'free' && p.status !== null);
-      if (occupied && occupied.length > 0) {
-        return res.status(409).json({ error: 'Some pixels are unavailable' });
+      // Filter for actually occupied pixels (not free, not null)
+      const occupiedPixels = existing?.filter(p => 
+        p.status && p.status !== 'free'
+      ) || [];
+
+      if (occupiedPixels.length > 0) {
+        const occupiedIds = occupiedPixels.map(p => p.pixel_id).join(', ');
+        console.log('Occupied pixels:', occupiedIds);
+        return res.status(409).json({ 
+          error: `Pixels ${occupiedIds} are unavailable`,
+          occupiedPixels: occupiedPixels 
+        });
       }
 
       const reference = 'PIX-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -71,6 +123,7 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: error.message });
       }
 
+      // Reserve pixels
       await supabase.from('pixels').upsert(
         pixelIds.map(id => ({
           pixel_id: id,
@@ -133,6 +186,12 @@ export default async function handler(req, res) {
 
       await supabase.from('pixels').upsert(pixelUpdates);
       return res.status(200).json({ ok: true });
+    }
+
+    // CLEANUP EXPIRED ORDERS (Manual trigger)
+    if (action === 'cleanup' && req.method === 'POST') {
+      await cleanupExpiredOrders();
+      return res.status(200).json({ success: true, message: 'Cleanup completed' });
     }
 
     return res.status(400).json({ error: 'Invalid action' });
