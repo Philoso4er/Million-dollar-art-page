@@ -1,6 +1,6 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,13 +13,12 @@ module.exports = async (req, res) => {
 
   // Check environment variables
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing Supabase environment variables');
+    console.error('Missing env vars:', {
+      hasUrl: !!process.env.SUPABASE_URL,
+      hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    });
     return res.status(500).json({ 
-      error: 'Server configuration error - missing Supabase credentials',
-      details: {
-        hasUrl: !!process.env.SUPABASE_URL,
-        hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
-      }
+      error: 'Server configuration error - Check Vercel env variables'
     });
   }
 
@@ -39,16 +38,10 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'Invalid pixel selection' });
       }
 
-      // Check availability
-      const { data: existing, error: fetchError } = await supabase
+      const { data: existing } = await supabase
         .from('pixels')
         .select('pixel_id, status')
         .in('pixel_id', pixelIds);
-
-      if (fetchError) {
-        console.error('Supabase fetch error:', fetchError);
-        return res.status(500).json({ error: 'Database error: ' + fetchError.message });
-      }
 
       const occupied = existing?.filter(p => p.status !== 'free' && p.status !== null);
       if (occupied && occupied.length > 0) {
@@ -58,7 +51,6 @@ module.exports = async (req, res) => {
       const reference = 'PIX-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
       const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
-      // Create order
       const { data: order, error } = await supabase
         .from('orders')
         .insert({
@@ -76,21 +68,16 @@ module.exports = async (req, res) => {
 
       if (error) {
         console.error('Order creation error:', error);
-        return res.status(500).json({ error: 'Failed to create order: ' + error.message });
+        return res.status(500).json({ error: error.message });
       }
 
-      // Reserve pixels
-      const { error: reserveError } = await supabase.from('pixels').upsert(
+      await supabase.from('pixels').upsert(
         pixelIds.map(id => ({
           pixel_id: id,
           status: 'reserved',
           order_id: order.id,
         }))
       );
-
-      if (reserveError) {
-        console.error('Pixel reservation error:', reserveError);
-      }
 
       return res.status(200).json({ reference, order_id: order.id });
     }
@@ -106,27 +93,23 @@ module.exports = async (req, res) => {
       return res.status(200).json({ orders: data || [] });
     }
 
-    // UPDATE ORDER STATUS (Admin - Mark as Paid)
+    // UPDATE ORDER (Admin)
     if (action === 'update' && req.method === 'POST') {
       const { orderId } = req.body;
 
-      // Get order details
-      const { data: order, error: fetchError } = await supabase
+      const { data: order } = await supabase
         .from('orders')
         .select('*')
         .eq('id', orderId)
         .single();
 
-      if (fetchError) return res.status(500).json({ error: fetchError.message });
       if (!order) return res.status(404).json({ error: 'Order not found' });
 
-      // Mark order as paid
       await supabase
         .from('orders')
         .update({ status: 'paid' })
         .eq('id', orderId);
 
-      // Update pixels to sold
       const pixelUpdates = order.pixel_ids.map(pixelId => {
         let pixelColor = order.color;
         let pixelLink = order.link;
@@ -155,10 +138,6 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
   } catch (err) {
     console.error('API Error:', err);
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    return res.status(500).json({ error: err.message });
   }
-};
+}
