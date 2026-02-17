@@ -1,7 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 
 module.exports = async (req, res) => {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -11,19 +10,18 @@ module.exports = async (req, res) => {
     return res.status(200).end();
   }
 
-  // Check environment variables
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing Supabase environment variables');
-    return res.status(500).json({ 
-      error: 'Server configuration error',
-      details: 'Missing Supabase credentials'
+  // Support both SUPABASE_URL and VITE_SUPABASE_URL
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.error('Missing env vars:', { SUPABASE_URL: !!SUPABASE_URL, SUPABASE_KEY: !!SUPABASE_KEY });
+    return res.status(500).json({
+      error: `Server configuration error: missing ${!SUPABASE_URL ? 'SUPABASE_URL' : 'SUPABASE_SERVICE_ROLE_KEY'}`,
     });
   }
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
   const { action } = req.query;
 
@@ -65,9 +63,9 @@ module.exports = async (req, res) => {
     return res.status(400).json({ error: 'Invalid action' });
   } catch (err) {
     console.error('API Error:', err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: 'Internal server error',
-      message: err.message
+      message: err.message,
     });
   }
 };
