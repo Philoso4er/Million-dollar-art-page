@@ -482,7 +482,7 @@ function PaymentModal({
               {paymentMethod === 'paypal' && (
                 <div className="mb-4">
                   <p className="text-sm text-gray-400 mb-3 text-center">
-                    Complete your ${pixelIds.length} payment via PayPal below:
+                    Complete your £{pixelIds.length} payment via PayPal below:
                   </p>
                   <PayPalButton
                     amount={pixelIds.length}
@@ -740,7 +740,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                   <tr key={order.id} className="hover:bg-gray-800/50">
                     <td className="px-4 py-3 font-mono text-sm">{order.reference}</td>
                     <td className="px-4 py-3">{order.pixel_ids.length}</td>
-                    <td className="px-4 py-3">${order.amount_usd}</td>
+                    <td className="px-4 py-3">£{order.amount_usd}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-1 rounded text-xs font-semibold ${
                         order.status === 'paid' ? 'bg-green-900 text-green-300' :
