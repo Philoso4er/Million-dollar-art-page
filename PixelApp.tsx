@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import TermsPage from './TermsPage';
 
 // Load Flutterwave script
 const loadFlutterwaveScript = () => {
@@ -23,7 +24,7 @@ const loadPayPalScript = (clientId: string) => {
       return;
     }
     const script = document.createElement('script');
-    script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
+    script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=GBP`;
     script.onload = () => resolve(true);
     script.onerror = () => reject(new Error('Failed to load PayPal'));
     document.head.appendChild(script);
@@ -189,9 +190,9 @@ function PayPalButton({
           purchase_units: [{
             amount: {
               value: amount.toFixed(2),
-              currency_code: 'USD',
+              currency_code: 'GBP',
             },
-            description: `Million Pixel Grid - ${amount} pixel${amount > 1 ? 's' : ''}`,
+            description: `The Million Pixel Grid - ${amount} pixel${amount > 1 ? 's' : ''}`,
           }],
         });
       },
@@ -319,12 +320,12 @@ function PaymentModal({
         public_key: publicKey,
         tx_ref: data.reference,
         amount: pixelIds.length,
-        currency: 'USD',
+        currency: 'GBP',
         payment_options: 'card,mobilemoney,ussd',
         customer: { email: 'buyer@pixelgrid.com', name: 'Pixel Buyer' },
         customizations: {
-          title: 'Million Pixel Grid',
-          description: `${pixelIds.length} pixel${pixelIds.length > 1 ? 's' : ''}`,
+          title: 'The Million Pixel Grid',
+          description: `${pixelIds.length} pixel${pixelIds.length > 1 ? 's' : ''} — The Million Pixel Grid`,
           logo: '',
         },
         callback: (payment: any) => {
@@ -399,7 +400,7 @@ function PaymentModal({
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Buy {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — ${pixelIds.length} USD
+              Buy {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length} GBP
             </h2>
             <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none">×</button>
           </div>
@@ -503,10 +504,18 @@ function PaymentModal({
                     disabled={loading}
                     className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {loading ? '⏳ Processing...' : `💰 Pay $${pixelIds.length}`}
+                    {loading ? '⏳ Processing...' : `💰 Pay £${pixelIds.length}`}
                   </button>
                 </div>
               )}
+
+              <p className="text-center text-xs text-gray-600 mt-4">
+                By purchasing you agree to our{' '}
+                <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400 underline">
+                  Terms &amp; Conditions
+                </button>
+                . All sales are final. £1 per pixel.
+              </p>
             </>
           )}
 
@@ -520,10 +529,10 @@ function PaymentModal({
 
               <div className="bg-gray-800 border-2 border-cyan-500/30 p-6 rounded-xl">
                 <h3 className="font-bold text-cyan-300 mb-3 text-lg">
-                  💰 Send ${pixelIds.length} USD worth of crypto to:
+                  💰 Send £{pixelIds.length} GBP worth of crypto to:
                 </h3>
                 <div className="bg-black/70 p-4 rounded-lg">
-                  <p className="text-xs text-gray-400 mb-2">USDT/USDC (ETH/BSC/Polygon):</p>
+                  <p className="text-xs text-gray-400 mb-2">USDT/USDC (ETH/BSC/Polygon) — use GBP equivalent:</p>
                   <p className="text-white font-mono text-sm break-all bg-gray-900 p-3 rounded">
                     {CRYPTO_ADDRESS}
                   </p>
@@ -792,6 +801,7 @@ export default function PixelApp() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [claimedCount, setClaimedCount] = useState(0);
+  const [showTerms, setShowTerms] = useState(false);
 
   useEffect(() => {
     if (localStorage.getItem('admin_auth') === 'true') setIsAdmin(true);
@@ -858,6 +868,10 @@ export default function PixelApp() {
     setSelected(new Set());
     setActivePixels(null);
   };
+
+  if (showTerms) {
+    return <TermsPage onClose={() => setShowTerms(false)} />;
+  }
 
   if (showAdmin && !isAdmin) {
     return <AdminLogin onSuccess={() => { setIsAdmin(true); }} />;
@@ -928,6 +942,20 @@ export default function PixelApp() {
           onClose={() => { setActivePixels(null); setSelected(new Set()); }}
           onSuccess={handlePaymentSuccess} />
       )}
+
+      {/* Footer */}
+      <footer className="bg-gray-900 border-t border-gray-800 px-4 py-2 flex items-center justify-between flex-shrink-0 text-xs text-gray-500">
+        <span>A collaborative digital art project. <span className="text-gray-400">1,000,000 pixels. £1,000,000.</span></span>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowTerms(true)}
+            className="hover:text-cyan-400 transition underline"
+          >
+            Terms &amp; Conditions
+          </button>
+          <span>© 2026 The Million Pixel Grid</span>
+        </div>
+      </footer>
     </div>
   );
 }
