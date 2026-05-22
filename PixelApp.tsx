@@ -192,7 +192,7 @@ function PayPalButton({
               value: amount.toFixed(2),
               currency_code: 'GBP',
             },
-            description: `The Million Pixel Grid - ${amount} pixel${amount > 1 ? 's' : ''}`,
+            description: `The Teesside Legacy Canvas - ${amount} pixel${amount > 1 ? 's' : ''}`,
           }],
         });
       },
@@ -285,7 +285,6 @@ function PaymentModal({
     return data;
   };
 
-  // Mark order paid after PayPal success
   const confirmPayPalPayment = async (orderId: string, reference: string) => {
     const res = await fetch('/api/orders?action=confirm-paypal', {
       method: 'POST',
@@ -324,8 +323,8 @@ function PaymentModal({
         payment_options: 'card,mobilemoney,ussd',
         customer: { email: 'buyer@pixelgrid.com', name: 'Pixel Buyer' },
         customizations: {
-          title: 'The Million Pixel Grid',
-          description: `${pixelIds.length} pixel${pixelIds.length > 1 ? 's' : ''} — The Million Pixel Grid`,
+          title: 'The Teesside Legacy Canvas',
+          description: `${pixelIds.length} pixel${pixelIds.length > 1 ? 's' : ''} — The Teesside Legacy Canvas`,
           logo: '',
         },
         callback: (payment: any) => {
@@ -345,8 +344,6 @@ function PaymentModal({
   };
 
   const handlePayPalOrder = async (paypalOrderId: string) => {
-    // We need the pixel reference to link PayPal payment to an order
-    // Create the order first if not done, then confirm
     try {
       const data = await createOrder();
       await confirmPayPalPayment(paypalOrderId, data.reference);
@@ -398,12 +395,14 @@ function PaymentModal({
     <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-cyan-500/30 shadow-2xl">
         <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex justify-between items-center mb-2">
             <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Buy {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length} GBP
+              Contribute {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length}
             </h2>
             <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none">×</button>
           </div>
+
+          <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of The Teesside Legacy Canvas.</p>
 
           {!orderRef && (
             <>
@@ -431,7 +430,7 @@ function PaymentModal({
                       className="w-full h-14 rounded-lg cursor-pointer border-2 border-gray-700" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional)</label>
+                    <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional — portfolio, LinkedIn, project)</label>
                     <input type="url" placeholder="https://yoursite.com" value={syncLink}
                       onChange={(e) => setSyncLink(e.target.value)}
                       className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg text-white focus:border-cyan-500 focus:outline-none" />
@@ -462,7 +461,7 @@ function PaymentModal({
                   onClick={() => setPaymentMethod('card')}
                   className={`py-4 rounded-lg font-bold transition ${paymentMethod === 'card' ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
                 >
-                  💳 Card / Mobile
+                  💳 Debit/Credit Card
                 </button>
                 <button
                   onClick={() => setPaymentMethod('paypal')}
@@ -482,7 +481,7 @@ function PaymentModal({
               {paymentMethod === 'paypal' && (
                 <div className="mb-4">
                   <p className="text-sm text-gray-400 mb-3 text-center">
-                    Complete your £{pixelIds.length} payment via PayPal below:
+                    Complete your £{pixelIds.length} contribution via PayPal below:
                   </p>
                   <PayPalButton
                     amount={pixelIds.length}
@@ -504,17 +503,17 @@ function PaymentModal({
                     disabled={loading}
                     className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {loading ? '⏳ Processing...' : `💰 Pay £${pixelIds.length}`}
+                    {loading ? '⏳ Processing...' : `Contribute £${pixelIds.length}`}
                   </button>
                 </div>
               )}
 
               <p className="text-center text-xs text-gray-600 mt-4">
-                By purchasing you agree to our{' '}
+                By contributing you agree to our{' '}
                 <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400 underline">
                   Terms &amp; Conditions
                 </button>
-                . All sales are final. £1 per pixel.
+                . All contributions are final. £1 per pixel.
               </p>
             </>
           )}
@@ -523,7 +522,7 @@ function PaymentModal({
           {orderRef && (
             <div className="space-y-4">
               <div className="bg-gradient-to-r from-yellow-900/40 to-orange-900/40 border-2 border-yellow-500 rounded-xl p-6">
-                <h3 className="font-bold text-yellow-300 mb-3 text-lg">📋 Order Reference</h3>
+                <h3 className="font-bold text-yellow-300 mb-3 text-lg">📋 Contribution Reference</h3>
                 <p className="text-white font-mono text-xl bg-black/50 p-3 rounded break-all">{orderRef}</p>
               </div>
 
@@ -561,7 +560,6 @@ function PaymentModal({
 }
 
 // ============= ADMIN LOGIN COMPONENT =============
-// Password is checked SERVER-SIDE only — never exposed in the browser bundle
 function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -688,7 +686,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       <header className="bg-gray-900 border-b border-gray-700 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-            Admin Dashboard
+            Admin Dashboard — Teesside Legacy Canvas
           </h1>
           <div className="flex gap-3">
             <button onClick={manualCleanup} disabled={cleanupLoading}
@@ -705,9 +703,9 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       <div className="max-w-7xl mx-auto p-6">
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            { label: 'Free Pixels', value: stats.free, color: 'text-green-400' },
+            { label: 'Available Pixels', value: stats.free, color: 'text-green-400' },
             { label: 'Reserved', value: stats.reserved, color: 'text-yellow-400' },
-            { label: 'Sold Pixels', value: stats.sold, color: 'text-blue-400' },
+            { label: 'Contributions', value: stats.sold, color: 'text-blue-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-900 p-6 rounded-lg border border-gray-700">
               <div className="text-gray-400 text-sm mb-1">{label}</div>
@@ -887,9 +885,11 @@ export default function PixelApp() {
 
   return (
     <div className="h-screen bg-black text-white flex flex-col overflow-hidden">
+
+      {/* ── HEADER ── */}
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
-        <h1 className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-          Million Pixel Grid
+        <h1 className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent whitespace-nowrap">
+          The Teesside Legacy Canvas
         </h1>
         <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -897,25 +897,34 @@ export default function PixelApp() {
           className="bg-gray-800 border border-gray-700 rounded px-3 py-2 w-32 focus:border-cyan-500 focus:outline-none" />
         <button onClick={handleSearch} className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded font-semibold transition">Search</button>
         <button onClick={buyRandom} className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded font-semibold transition">🎲 Random</button>
-        <div className="ml-auto text-sm text-gray-300">
+        <div className="ml-auto text-sm text-gray-300 whitespace-nowrap">
           <span className="font-bold text-green-400">{claimedCount.toLocaleString()}</span>
-          {' / '}{TOTAL_PIXELS.toLocaleString()} claimed
+          {' / '}{TOTAL_PIXELS.toLocaleString()} contributions
         </div>
         <button onClick={() => setShowAdmin(true)} className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded font-semibold transition">Admin</button>
       </header>
 
+      {/* ── SUBTITLE BANNER ── */}
+      <div className="bg-gray-900/60 border-b border-gray-800 px-4 py-2 text-center flex-shrink-0">
+        <p className="text-gray-400 text-xs">
+          A collaborative digital artwork where Teesside students, alumni, and community create a permanent collective legacy — one pixel at a time.
+        </p>
+      </div>
+
+      {/* ── CANVAS ── */}
       <div className="flex-1 overflow-hidden">
         <PixelGrid pixels={pixels} searchedPixel={searchedPixel} selected={selected}
           onPixelSelect={toggleSelect}
           onHover={(pixel, x, y) => setHovered(pixel ? { pixel, x, y } : null)} />
       </div>
 
+      {/* ── HOVER TOOLTIP ── */}
       {hovered?.pixel && (
         <div className="fixed bg-gray-900 border-2 border-cyan-500/50 rounded-lg px-4 py-3 text-sm pointer-events-none shadow-2xl z-40"
           style={{ left: hovered.x + 16, top: hovered.y + 16 }}>
           <div className="font-bold text-cyan-300">Pixel #{hovered.pixel.id}</div>
           <div className={`text-sm ${hovered.pixel.status === 'sold' ? 'text-red-400' : hovered.pixel.status === 'reserved' ? 'text-yellow-400' : 'text-green-400'}`}>
-            {hovered.pixel.status === 'sold' ? '🔴 Sold' : hovered.pixel.status === 'reserved' ? '🟡 Reserved' : '🟢 Available'}
+            {hovered.pixel.status === 'sold' ? '🔴 Contributed' : hovered.pixel.status === 'reserved' ? '🟡 Reserved' : '🟢 Available'}
           </div>
           {hovered.pixel.link && (
             <div className="text-blue-400 text-xs truncate max-w-[200px]">{hovered.pixel.link}</div>
@@ -923,12 +932,13 @@ export default function PixelApp() {
         </div>
       )}
 
+      {/* ── SELECTION BAR ── */}
       {selected.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-6 py-4 shadow-2xl shadow-cyan-500/20 flex items-center gap-4">
           <span className="font-bold text-lg">{selected.size} pixel{selected.size > 1 ? 's' : ''} selected</span>
           <button onClick={() => setActivePixels([...selected])}
             className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/50 transition">
-            💰 Buy Now
+            Contribute Now — £{selected.size}
           </button>
           <button onClick={() => setSelected(new Set())}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition">
@@ -937,15 +947,16 @@ export default function PixelApp() {
         </div>
       )}
 
+      {/* ── PAYMENT MODAL ── */}
       {activePixels && (
         <PaymentModal pixelIds={activePixels}
           onClose={() => { setActivePixels(null); setSelected(new Set()); }}
           onSuccess={handlePaymentSuccess} />
       )}
 
-      {/* Footer */}
+      {/* ── FOOTER ── */}
       <footer className="bg-gray-900 border-t border-gray-800 px-4 py-2 flex items-center justify-between flex-shrink-0 text-xs text-gray-500">
-        <span>A collaborative digital art project. <span className="text-gray-400">1,000,000 pixels. £1,000,000.</span></span>
+        <span>A student-led collaborative art initiative. <span className="text-gray-400">1,000,000 pixels. One legacy.</span></span>
         <div className="flex items-center gap-4">
           <button
             onClick={() => setShowTerms(true)}
@@ -953,7 +964,7 @@ export default function PixelApp() {
           >
             Terms &amp; Conditions
           </button>
-          <span>© 2026 The Million Pixel Grid</span>
+          <span>The Teesside Legacy Canvas — A Student-Led Collaborative Art Initiative</span>
         </div>
       </footer>
     </div>
