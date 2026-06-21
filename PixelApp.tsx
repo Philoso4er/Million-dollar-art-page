@@ -1,39 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
 import TermsPage from './TermsPage';
 
-// Load Flutterwave script
-const loadFlutterwaveScript = () => {
-  return new Promise((resolve, reject) => {
-    if (typeof window !== 'undefined' && (window as any).FlutterwaveCheckout) {
-      resolve(true);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://checkout.flutterwave.com/v3.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => reject(new Error('Failed to load Flutterwave'));
-    document.head.appendChild(script);
-  });
-};
-
-// Load PayPal script
-const loadPayPalScript = (clientId: string) => {
-  return new Promise((resolve, reject) => {
-    if (typeof window !== 'undefined' && (window as any).paypal) {
-      resolve(true);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=GBP`;
-    script.onload = () => resolve(true);
-    script.onerror = () => reject(new Error('Failed to load PayPal'));
-    document.head.appendChild(script);
-  });
-};
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
-const CRYPTO_ADDRESS = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
 
 // ============= TYPES =============
 interface PixelData {
@@ -149,82 +127,72 @@ function PixelGrid({
   );
 }
 
-// ============= PAYPAL BUTTON COMPONENT =============
-function PayPalButton({
-  amount,
+// ============= STRIPE CHECKOUT FORM (inner, needs Elements context) =============
+function StripeCheckoutForm({
+  pixelCount,
   onSuccess,
-  onError,
+  onCancel,
 }: {
-  amount: number;
-  onSuccess: (orderId: string) => void;
-  onError: (err: any) => void;
+  pixelCount: number;
+  onSuccess: () => void;
+  onCancel: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
-  const [rendered, setRendered] = useState(false);
+  const stripe = useStripe();
+  const elements = useElements();
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const PAYPAL_CLIENT_ID = import.meta.env.VITE_PAYPAL_CLIENT_ID;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
 
-  useEffect(() => {
-    if (!PAYPAL_CLIENT_ID) return;
-    loadPayPalScript(PAYPAL_CLIENT_ID)
-      .then(() => setReady(true))
-      .catch(onError);
-  }, []);
+    setLoading(true);
+    setErrorMsg(null);
 
-  useEffect(() => {
-    if (!ready || !containerRef.current || rendered) return;
-    const paypal = (window as any).paypal;
-    if (!paypal) return;
+    const { error, paymentIntent } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
+    });
 
-    setRendered(true);
-    paypal.Buttons({
-      style: {
-        layout: 'vertical',
-        color: 'gold',
-        shape: 'rect',
-        label: 'pay',
-      },
-      createOrder: (_data: any, actions: any) => {
-        return actions.order.create({
-          purchase_units: [{
-            amount: {
-              value: amount.toFixed(2),
-              currency_code: 'GBP',
-            },
-            description: `The Teesside Legacy Canvas - ${amount} pixel${amount > 1 ? 's' : ''}`,
-          }],
-        });
-      },
-      onApprove: async (_data: any, actions: any) => {
-        const order = await actions.order.capture();
-        onSuccess(order.id);
-      },
-      onError: (err: any) => {
-        console.error('PayPal error:', err);
-        onError(err);
-      },
-      onCancel: () => {
-        console.log('PayPal cancelled');
-      },
-    }).render(containerRef.current);
-  }, [ready, rendered, amount]);
+    if (error) {
+      setErrorMsg(error.message || 'Payment failed. Please try again.');
+      setLoading(false);
+      return;
+    }
 
-  if (!PAYPAL_CLIENT_ID) {
-    return (
-      <div className="text-yellow-400 text-sm text-center p-3 bg-yellow-900/20 rounded-lg border border-yellow-700">
-        ⚠️ PayPal not configured. Add VITE_PAYPAL_CLIENT_ID to your environment.
-      </div>
-    );
-  }
+    if (paymentIntent && paymentIntent.status === 'succeeded') {
+      onSuccess();
+    } else {
+      setErrorMsg('Payment did not complete. Please try again.');
+      setLoading(false);
+    }
+  };
 
   return (
-    <div>
-      {!ready && (
-        <div className="text-gray-400 text-sm text-center p-3">Loading PayPal...</div>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {errorMsg && (
+        <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3">
+          {errorMsg}
+        </div>
       )}
-      <div ref={containerRef} />
-    </div>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 py-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || loading}
+          className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {loading ? '⏳ Processing...' : `Pay £${pixelCount}`}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -244,15 +212,10 @@ function PaymentModal({
   const [individualData, setIndividualData] = useState(
     pixelIds.map((id) => ({ id, color: '#ff3366', link: '' }))
   );
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal' | 'crypto'>('card');
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [reference, setReference] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [orderRef, setOrderRef] = useState<string | null>(null);
-  const [proofFile, setProofFile] = useState<File | null>(null);
-  const [proofUploading, setProofUploading] = useState(false);
-
-  useEffect(() => {
-    loadFlutterwaveScript();
-  }, []);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const updateIndividual = (index: number, key: 'color' | 'link', value: string) => {
     setIndividualData((prev) => {
@@ -262,133 +225,58 @@ function PaymentModal({
     });
   };
 
-  const createOrder = async () => {
-    const payload =
-      mode === 'sync'
-        ? { pixelIds, mode, color: syncColor, link: syncLink }
-        : { pixelIds, mode, individual: individualData };
-
-    const res = await fetch('/api/orders?action=create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const contentType = res.headers.get('content-type');
-    if (!contentType?.includes('application/json')) {
-      const text = await res.text();
-      throw new Error('Server error: ' + text.slice(0, 100));
-    }
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to create order');
-    return data;
-  };
-
-  const confirmPayPalPayment = async (orderId: string, reference: string) => {
-    const res = await fetch('/api/orders?action=confirm-paypal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paypalOrderId: orderId, reference }),
-    });
-    if (res.ok) {
-      onSuccess();
-      onClose();
-    } else {
-      alert('Payment captured but confirmation failed. Please contact support with reference: ' + reference);
-    }
-  };
-
-  const handleCardPayment = async () => {
+  const createOrderAndIntent = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const data = await createOrder();
-      const FLW = (window as any).FlutterwaveCheckout;
-      if (!FLW) {
-        alert('Payment gateway not loaded. Please refresh and try again.');
-        setLoading(false);
-        return;
-      }
-      const publicKey = import.meta.env.VITE_FLW_PUBLIC_KEY;
-      if (!publicKey) {
-        alert('⚠️ Card payment not configured.');
-        setLoading(false);
-        return;
-      }
-      FLW({
-        public_key: publicKey,
-        tx_ref: data.reference,
-        amount: pixelIds.length,
-        currency: 'GBP',
-        payment_options: 'card,mobilemoney,ussd',
-        customer: { email: 'buyer@pixelgrid.com', name: 'Pixel Buyer' },
-        customizations: {
-          title: 'The Teesside Legacy Canvas',
-          description: `${pixelIds.length} pixel${pixelIds.length > 1 ? 's' : ''} — The Teesside Legacy Canvas`,
-          logo: '',
-        },
-        callback: (payment: any) => {
-          if (payment.status === 'successful') {
-            setTimeout(() => {
-              onSuccess();
-              onClose();
-            }, 1000);
-          }
-        },
-        onclose: () => setLoading(false),
-      });
-    } catch (err: any) {
-      alert('Error: ' + err.message);
-      setLoading(false);
-    }
-  };
+      const payload =
+        mode === 'sync'
+          ? { pixelIds, mode, color: syncColor, link: syncLink }
+          : { pixelIds, mode, individual: individualData };
 
-  const handlePayPalOrder = async (paypalOrderId: string) => {
-    try {
-      const data = await createOrder();
-      await confirmPayPalPayment(paypalOrderId, data.reference);
-    } catch (err: any) {
-      alert('PayPal payment received but order linking failed: ' + err.message);
-    }
-  };
-
-  const handleCryptoPayment = async () => {
-    setLoading(true);
-    try {
-      const data = await createOrder();
-      setOrderRef(data.reference);
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const uploadProof = async () => {
-    if (!proofFile || !orderRef) return;
-    setProofUploading(true);
-
-    const formData = new FormData();
-    formData.append('proof', proofFile);
-    formData.append('reference', orderRef);
-
-    try {
-      const res = await fetch('/api/upload-proof', {
+      const orderRes = await fetch('/api/orders?action=create', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        alert('✅ Proof uploaded! Admin will verify your payment within 24 hours.');
-        onClose();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        alert('❌ Upload failed: ' + (data.error || 'Please try again.'));
-      }
-    } catch {
-      alert('❌ Network error. Please try again.');
+
+      const orderData = await orderRes.json();
+      if (!orderRes.ok) throw new Error(orderData.error || 'Failed to create order');
+
+      setReference(orderData.reference);
+
+      const intentRes = await fetch('/api/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: orderData.reference }),
+      });
+
+      const intentData = await intentRes.json();
+      if (!intentRes.ok) throw new Error(intentData.error || 'Failed to start payment');
+
+      setClientSecret(intentData.clientSecret);
+    } catch (err: any) {
+      setErrorMsg(err.message);
     } finally {
-      setProofUploading(false);
+      setLoading(false);
     }
+  };
+
+  const handlePaymentSuccess = async () => {
+    if (reference) {
+      // Confirm immediately client-side too, in case webhook is delayed
+      try {
+        await fetch('/api/orders?action=confirm-stripe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reference }),
+        });
+      } catch {
+        // webhook will still catch this even if this call fails
+      }
+    }
+    onSuccess();
+    onClose();
   };
 
   return (
@@ -397,16 +285,15 @@ function PaymentModal({
         <div className="p-6">
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Contribute {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length}
+              {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length}
             </h2>
             <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none">×</button>
           </div>
 
-          <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of The Teesside Legacy Canvas.</p>
+          <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of the Pixel Art Grid.</p>
 
-          {!orderRef && (
+          {!clientSecret && (
             <>
-              {/* Color/Link Mode */}
               <div className="grid grid-cols-2 gap-3 mb-6">
                 <button
                   onClick={() => setMode('sync')}
@@ -430,7 +317,7 @@ function PaymentModal({
                       className="w-full h-14 rounded-lg cursor-pointer border-2 border-gray-700" />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional — portfolio, LinkedIn, project)</label>
+                    <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional)</label>
                     <input type="url" placeholder="https://yoursite.com" value={syncLink}
                       onChange={(e) => setSyncLink(e.target.value)}
                       className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg text-white focus:border-cyan-500 focus:outline-none" />
@@ -455,103 +342,58 @@ function PaymentModal({
                 </div>
               )}
 
-              {/* Payment Method Selection */}
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                <button
-                  onClick={() => setPaymentMethod('card')}
-                  className={`py-4 rounded-lg font-bold transition ${paymentMethod === 'card' ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  💳 Debit/Credit Card
+              {errorMsg && (
+                <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3 mb-4">
+                  {errorMsg}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <button onClick={onClose}
+                  className="flex-1 py-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition">
+                  Cancel
                 </button>
                 <button
-                  onClick={() => setPaymentMethod('paypal')}
-                  className={`py-4 rounded-lg font-bold transition ${paymentMethod === 'paypal' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                  onClick={createOrderAndIntent}
+                  disabled={loading}
+                  className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  🅿 PayPal
-                </button>
-                <button
-                  onClick={() => setPaymentMethod('crypto')}
-                  className={`py-4 rounded-lg font-bold transition ${paymentMethod === 'crypto' ? 'bg-gradient-to-r from-orange-500 to-yellow-600 text-white shadow-lg shadow-orange-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  ₿ Crypto
+                  {loading ? '⏳ Loading...' : `Continue to Payment — £${pixelIds.length}`}
                 </button>
               </div>
-
-              {/* PayPal inline buttons */}
-              {paymentMethod === 'paypal' && (
-                <div className="mb-4">
-                  <p className="text-sm text-gray-400 mb-3 text-center">
-                    Complete your £{pixelIds.length} contribution via PayPal below:
-                  </p>
-                  <PayPalButton
-                    amount={pixelIds.length}
-                    onSuccess={(paypalOrderId) => handlePayPalOrder(paypalOrderId)}
-                    onError={(err) => alert('PayPal error: ' + err.message)}
-                  />
-                </div>
-              )}
-
-              {/* Card / Crypto action buttons */}
-              {paymentMethod !== 'paypal' && (
-                <div className="flex gap-3">
-                  <button onClick={onClose}
-                    className="flex-1 py-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition">
-                    Cancel
-                  </button>
-                  <button
-                    onClick={paymentMethod === 'card' ? handleCardPayment : handleCryptoPayment}
-                    disabled={loading}
-                    className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? '⏳ Processing...' : `Contribute £${pixelIds.length}`}
-                  </button>
-                </div>
-              )}
 
               <p className="text-center text-xs text-gray-600 mt-4">
                 By contributing you agree to our{' '}
                 <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400 underline">
                   Terms &amp; Conditions
                 </button>
-                . All contributions are final. £1 per pixel.
+                . All sales are final. £1 per pixel.
               </p>
             </>
           )}
 
-          {/* Crypto Payment Instructions */}
-          {orderRef && (
-            <div className="space-y-4">
-              <div className="bg-gradient-to-r from-yellow-900/40 to-orange-900/40 border-2 border-yellow-500 rounded-xl p-6">
-                <h3 className="font-bold text-yellow-300 mb-3 text-lg">📋 Contribution Reference</h3>
-                <p className="text-white font-mono text-xl bg-black/50 p-3 rounded break-all">{orderRef}</p>
-              </div>
-
-              <div className="bg-gray-800 border-2 border-cyan-500/30 p-6 rounded-xl">
-                <h3 className="font-bold text-cyan-300 mb-3 text-lg">
-                  💰 Send £{pixelIds.length} GBP worth of crypto to:
-                </h3>
-                <div className="bg-black/70 p-4 rounded-lg">
-                  <p className="text-xs text-gray-400 mb-2">USDT/USDC (ETH/BSC/Polygon) — use GBP equivalent:</p>
-                  <p className="text-white font-mono text-sm break-all bg-gray-900 p-3 rounded">
-                    {CRYPTO_ADDRESS}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-300 mb-3">
-                  📸 Upload Payment Screenshot/Proof
-                </label>
-                <input type="file" accept="image/*"
-                  onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                  className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-cyan-600 file:text-white hover:file:bg-cyan-700" />
-              </div>
-
-              <button onClick={uploadProof} disabled={!proofFile || proofUploading}
-                className="w-full py-4 bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 text-white rounded-lg font-bold shadow-lg shadow-blue-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                {proofUploading ? '⏳ Uploading...' : '📤 Submit Proof'}
-              </button>
-            </div>
+          {clientSecret && (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret,
+                appearance: {
+                  theme: 'night',
+                  variables: {
+                    colorPrimary: '#06b6d4',
+                    colorBackground: '#1f2937',
+                    colorText: '#ffffff',
+                    borderRadius: '8px',
+                  },
+                },
+              }}
+            >
+              <StripeCheckoutForm
+                pixelCount={pixelIds.length}
+                onSuccess={handlePaymentSuccess}
+                onCancel={() => { setClientSecret(null); }}
+              />
+            </Elements>
           )}
         </div>
       </div>
@@ -686,7 +528,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       <header className="bg-gray-900 border-b border-gray-700 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-            Admin Dashboard — Teesside Legacy Canvas
+            Admin Dashboard — Pixel Art Grid
           </h1>
           <div className="flex gap-3">
             <button onClick={manualCleanup} disabled={cleanupLoading}
@@ -705,7 +547,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
           {[
             { label: 'Available Pixels', value: stats.free, color: 'text-green-400' },
             { label: 'Reserved', value: stats.reserved, color: 'text-yellow-400' },
-            { label: 'Contributions', value: stats.sold, color: 'text-blue-400' },
+            { label: 'Sold', value: stats.sold, color: 'text-blue-400' },
           ].map(({ label, value, color }) => (
             <div key={label} className="bg-gray-900 p-6 rounded-lg border border-gray-700">
               <div className="text-gray-400 text-sm mb-1">{label}</div>
@@ -750,8 +592,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
                     <td className="px-4 py-3 text-sm text-gray-400">{new Date(order.expires_at).toLocaleString()}</td>
                     <td className="px-4 py-3">
                       {order.payment_proof_url ? (
-                        <a href={order.payment_proof_url} target="_blank" rel="noopener noreferrer"
-                          className="text-blue-400 hover:text-blue-300 underline">View</a>
+                        <span className="text-gray-400 text-xs">{order.payment_proof_url.slice(0, 20)}...</span>
                       ) : <span className="text-gray-500">None</span>}
                     </td>
                     <td className="px-4 py-3">
@@ -889,7 +730,7 @@ export default function PixelApp() {
       {/* ── HEADER ── */}
       <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center gap-3 flex-shrink-0">
         <h1 className="font-bold text-lg bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent whitespace-nowrap">
-          The Teesside Legacy Canvas
+          Pixel Art Grid
         </h1>
         <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -899,7 +740,7 @@ export default function PixelApp() {
         <button onClick={buyRandom} className="bg-purple-600 hover:bg-purple-500 px-3 py-2 rounded font-semibold transition">🎲 Random</button>
         <div className="ml-auto text-sm text-gray-300 whitespace-nowrap">
           <span className="font-bold text-green-400">{claimedCount.toLocaleString()}</span>
-          {' / '}{TOTAL_PIXELS.toLocaleString()} contributions
+          {' / '}{TOTAL_PIXELS.toLocaleString()} sold
         </div>
         <button onClick={() => setShowAdmin(true)} className="bg-gray-800 hover:bg-gray-700 px-3 py-2 rounded font-semibold transition">Admin</button>
       </header>
@@ -907,7 +748,7 @@ export default function PixelApp() {
       {/* ── SUBTITLE BANNER ── */}
       <div className="bg-gray-900/60 border-b border-gray-800 px-4 py-2 text-center flex-shrink-0">
         <p className="text-gray-400 text-xs">
-          A collaborative digital artwork where Teesside students, alumni, and community create a permanent collective legacy — one pixel at a time.
+          A collaborative digital artwork — 1,000,000 pixels, £1 each. Own a piece of internet history.
         </p>
       </div>
 
@@ -924,7 +765,7 @@ export default function PixelApp() {
           style={{ left: hovered.x + 16, top: hovered.y + 16 }}>
           <div className="font-bold text-cyan-300">Pixel #{hovered.pixel.id}</div>
           <div className={`text-sm ${hovered.pixel.status === 'sold' ? 'text-red-400' : hovered.pixel.status === 'reserved' ? 'text-yellow-400' : 'text-green-400'}`}>
-            {hovered.pixel.status === 'sold' ? '🔴 Contributed' : hovered.pixel.status === 'reserved' ? '🟡 Reserved' : '🟢 Available'}
+            {hovered.pixel.status === 'sold' ? '🔴 Sold' : hovered.pixel.status === 'reserved' ? '🟡 Reserved' : '🟢 Available'}
           </div>
           {hovered.pixel.link && (
             <div className="text-blue-400 text-xs truncate max-w-[200px]">{hovered.pixel.link}</div>
@@ -938,7 +779,7 @@ export default function PixelApp() {
           <span className="font-bold text-lg">{selected.size} pixel{selected.size > 1 ? 's' : ''} selected</span>
           <button onClick={() => setActivePixels([...selected])}
             className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/50 transition">
-            Contribute Now — £{selected.size}
+            Buy Now — £{selected.size}
           </button>
           <button onClick={() => setSelected(new Set())}
             className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition">
@@ -956,7 +797,7 @@ export default function PixelApp() {
 
       {/* ── FOOTER ── */}
       <footer className="bg-gray-900 border-t border-gray-800 px-4 py-2 flex items-center justify-between flex-shrink-0 text-xs text-gray-500">
-        <span>A student-led collaborative art initiative. <span className="text-gray-400">1,000,000 pixels. One legacy.</span></span>
+        <span>A collaborative digital art project. <span className="text-gray-400">1,000,000 pixels. £1,000,000.</span></span>
         <div className="flex items-center gap-4">
           <button
             onClick={() => setShowTerms(true)}
@@ -964,7 +805,7 @@ export default function PixelApp() {
           >
             Terms &amp; Conditions
           </button>
-          <span>The Teesside Legacy Canvas — A Student-Led Collaborative Art Initiative</span>
+          <span>© 2026 Pixel Art Grid</span>
         </div>
       </footer>
     </div>
