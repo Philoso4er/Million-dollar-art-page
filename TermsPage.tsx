@@ -100,8 +100,8 @@ export default function TermsPage({ onClose }: { onClose: () => void }) {
             </h2>
             <div className="space-y-3 text-gray-400 leading-relaxed">
               <p>
-                All payments are processed securely via Flutterwave (card / mobile money) or PayPal.
-                Crypto payments are accepted with manual verification.
+                All payments are processed securely via Stripe.
+          
               </p>
               <p>
                 All prices are in <span className="text-white font-bold">British Pounds Sterling (£ GBP)</span>.
