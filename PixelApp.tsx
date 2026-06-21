@@ -42,14 +42,18 @@ function PixelGrid({
   searchedPixel,
   onPixelSelect,
   onHover,
+  onPixelClickInfo,
 }: {
   pixels: Map<number, PixelData>;
   selected: Set<number>;
   searchedPixel: number | null;
   onPixelSelect: (id: number) => void;
   onHover: (pixel: PixelData | null, x: number, y: number) => void;
+  onPixelClickInfo: (id: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -61,30 +65,48 @@ function PixelGrid({
     canvas.width = 1000;
     canvas.height = 1000;
 
-    ctx.fillStyle = '#0a0a0a';
+    // Base background — slightly lighter than pure black so empty pixels read as a grid, not a void
+    ctx.fillStyle = '#111318';
     ctx.fillRect(0, 0, 1000, 1000);
 
+    // Subtle checkerboard every 50px to give the eye a sense of scale on an empty canvas
+    ctx.fillStyle = '#15171d';
+    for (let y = 0; y < 1000; y += 50) {
+      for (let x = 0; x < 1000; x += 50) {
+        if ((x / 50 + y / 50) % 2 === 0) {
+          ctx.fillRect(x, y, 50, 50);
+        }
+      }
+    }
+
+    // Render actual sold/reserved pixels on top
     pixels.forEach((p) => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
-      ctx.fillStyle = p.color || '#1a1a1a';
+      ctx.fillStyle = p.color || '#666666';
+      if (p.status === 'reserved') {
+        ctx.globalAlpha = 0.5;
+      }
       ctx.fillRect(x, y, 1, 1);
+      ctx.globalAlpha = 1;
     });
 
+    // Searched pixel — bright yellow marker, slightly larger so it's visible when zoomed out
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
       ctx.strokeStyle = '#fbbf24';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x - 1, y - 1, 3, 3);
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 2, y - 2, 5, 5);
     }
 
+    // Selected pixels — cyan marker
     selected.forEach((id) => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
       ctx.strokeStyle = '#06b6d4';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x - 1, y - 1, 3, 3);
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x - 2, y - 2, 5, 5);
     });
   }, [pixels, selected, searchedPixel]);
 
@@ -100,34 +122,138 @@ function PixelGrid({
     return null;
   };
 
+  const zoomIn = () => setZoom((z) => Math.min(z * 1.5, 20));
+  const zoomOut = () => setZoom((z) => Math.max(z / 1.5, 1));
+  const resetZoom = () => setZoom(1);
+
   return (
-    <div className="w-full h-full flex items-center justify-center bg-gray-950 p-4">
-      <div className="relative" style={{ maxWidth: '800px', maxHeight: '800px', width: '100%', height: '100%' }}>
-        <canvas
-          ref={canvasRef}
-          className="border-2 border-gray-700 rounded-lg cursor-crosshair w-full h-full"
-          style={{ imageRendering: 'pixelated', objectFit: 'contain' }}
-          onMouseMove={(e) => {
-            const id = getPixelId(e);
-            if (id !== null) {
-              const pixel = pixels.get(id);
-              onHover(pixel || { id, color: '#0a0a0a', link: '', status: 'free' }, e.clientX, e.clientY);
-            }
+    <div className="relative w-full h-full">
+      <div
+        ref={containerRef}
+        className="w-full h-full flex items-center justify-center bg-gray-950 p-4 overflow-auto"
+      >
+        <div
+          className="relative"
+          style={{
+            width: `${800 * zoom}px`,
+            height: `${800 * zoom}px`,
+            maxWidth: zoom === 1 ? '800px' : 'none',
+            maxHeight: zoom === 1 ? '800px' : 'none',
           }}
-          onMouseLeave={() => onHover(null, 0, 0)}
-          onClick={(e) => {
-            const id = getPixelId(e);
-            if (id !== null && (!pixels.has(id) || pixels.get(id)?.status === 'free')) {
-              onPixelSelect(id);
-            }
-          }}
-        />
+        >
+          <canvas
+            ref={canvasRef}
+            className="border-2 border-gray-700 rounded-lg cursor-crosshair w-full h-full"
+            style={{ imageRendering: 'pixelated', objectFit: 'contain' }}
+            onMouseMove={(e) => {
+              const id = getPixelId(e);
+              if (id !== null) {
+                const pixel = pixels.get(id);
+                onHover(pixel || { id, color: '#0a0a0a', link: '', status: 'free' }, e.clientX, e.clientY);
+              }
+            }}
+            onMouseLeave={() => onHover(null, 0, 0)}
+            onClick={(e) => {
+              const id = getPixelId(e);
+              if (id === null) return;
+              const existing = pixels.get(id);
+              if (!existing || existing.status === 'free') {
+                onPixelSelect(id);
+              } else {
+                onPixelClickInfo(id);
+              }
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Zoom controls */}
+      <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-gray-900/90 border border-gray-700 rounded-lg p-2 backdrop-blur-sm">
+        <button onClick={zoomIn} className="w-9 h-9 flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded text-lg font-bold transition">+</button>
+        <button onClick={resetZoom} className="w-9 h-9 flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded text-xs font-bold transition">{Math.round(zoom * 100)}%</button>
+        <button onClick={zoomOut} className="w-9 h-9 flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded text-lg font-bold transition">−</button>
       </div>
     </div>
   );
 }
 
-// ============= STRIPE CHECKOUT FORM (inner, needs Elements context) =============
+// ============= PIXEL INFO MODAL =============
+function PixelInfoModal({
+  pixel,
+  onClose,
+  onBuy,
+}: {
+  pixel: PixelData;
+  onClose: () => void;
+  onBuy: (id: number) => void;
+}) {
+  const isFree = !pixel.status || pixel.status === 'free';
+  const isReserved = pixel.status === 'reserved';
+  const isSold = pixel.status === 'sold';
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-gray-900 rounded-2xl w-full max-w-sm border-2 border-cyan-500/30 shadow-2xl p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-cyan-300">Pixel #{pixel.id.toLocaleString()}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl font-bold leading-none">×</button>
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <div
+            className="w-12 h-12 rounded-lg border-2 border-gray-700 flex-shrink-0"
+            style={{ backgroundColor: isFree ? '#1a1a1a' : pixel.color }}
+          />
+          <div>
+            <div className={`font-bold ${isSold ? 'text-red-400' : isReserved ? 'text-yellow-400' : 'text-green-400'}`}>
+              {isSold ? '🔴 Sold' : isReserved ? '🟡 Reserved' : '🟢 Available'}
+            </div>
+            {!isFree && <div className="text-xs text-gray-500 font-mono">{pixel.color}</div>}
+          </div>
+        </div>
+
+        {pixel.link && (
+          <div className="mb-4 p-3 bg-gray-800 rounded-lg border border-gray-700">
+            <div className="text-xs text-gray-500 mb-1">Linked to:</div>
+            <a
+              href={pixel.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-400 hover:text-blue-300 underline text-sm break-all"
+            >
+              {pixel.link}
+            </a>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 text-sm text-gray-400 mb-4">
+          <div>
+            <div className="text-gray-600">Row</div>
+            <div className="font-mono text-gray-300">{Math.floor(pixel.id / GRID_SIZE)}</div>
+          </div>
+          <div>
+            <div className="text-gray-600">Column</div>
+            <div className="font-mono text-gray-300">{pixel.id % GRID_SIZE}</div>
+          </div>
+        </div>
+
+        {isFree && (
+          <button
+            onClick={() => { onBuy(pixel.id); onClose(); }}
+            className="w-full py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold transition"
+          >
+            Buy This Pixel — £1
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============= STRIPE CHECKOUT FORM =============
 function StripeCheckoutForm({
   pixelCount,
   onSuccess,
@@ -196,6 +322,34 @@ function StripeCheckoutForm({
   );
 }
 
+// ============= SUCCESS SCREEN =============
+function SuccessScreen({
+  pixelCount,
+  onClose,
+}: {
+  pixelCount: number;
+  onClose: () => void;
+}) {
+  return (
+    <div className="text-center py-4">
+      <div className="text-6xl mb-4">🎉</div>
+      <h2 className="text-2xl font-bold text-green-400 mb-2">Payment Successful!</h2>
+      <p className="text-gray-300 mb-1">
+        You've claimed {pixelCount} pixel{pixelCount > 1 ? 's' : ''} on the Pixel Art Grid.
+      </p>
+      <p className="text-gray-500 text-sm mb-6">
+        Your pixel{pixelCount > 1 ? 's are' : ' is'} now permanently part of internet history.
+      </p>
+      <button
+        onClick={onClose}
+        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg font-bold transition"
+      >
+        Back to the Grid
+      </button>
+    </div>
+  );
+}
+
 // ============= PAYMENT MODAL COMPONENT =============
 function PaymentModal({
   pixelIds,
@@ -216,6 +370,7 @@ function PaymentModal({
   const [reference, setReference] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const updateIndividual = (index: number, key: 'color' | 'link', value: string) => {
     setIndividualData((prev) => {
@@ -264,7 +419,6 @@ function PaymentModal({
 
   const handlePaymentSuccess = async () => {
     if (reference) {
-      // Confirm immediately client-side too, in case webhook is delayed
       try {
         await fetch('/api/orders?action=confirm-stripe', {
           method: 'POST',
@@ -275,125 +429,133 @@ function PaymentModal({
         // webhook will still catch this even if this call fails
       }
     }
-    onSuccess();
-    onClose();
+    onSuccess(); // refresh canvas data immediately
+    setShowSuccess(true); // show confirmation instead of vanishing
   };
 
   return (
     <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border-2 border-cyan-500/30 shadow-2xl">
         <div className="p-6">
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length}
-            </h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none">×</button>
-          </div>
-
-          <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of the Pixel Art Grid.</p>
-
-          {!clientSecret && (
-            <>
-              <div className="grid grid-cols-2 gap-3 mb-6">
-                <button
-                  onClick={() => setMode('sync')}
-                  className={`py-3 rounded-lg font-bold transition ${mode === 'sync' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  🎨 Same Color & Link
-                </button>
-                <button
-                  onClick={() => setMode('individual')}
-                  className={`py-3 rounded-lg font-bold transition ${mode === 'individual' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                >
-                  🖌️ Individual Settings
-                </button>
-              </div>
-
-              {mode === 'sync' && (
-                <div className="space-y-4 mb-6">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">🎨 Pixel Color</label>
-                    <input type="color" value={syncColor} onChange={(e) => setSyncColor(e.target.value)}
-                      className="w-full h-14 rounded-lg cursor-pointer border-2 border-gray-700" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional)</label>
-                    <input type="url" placeholder="https://yoursite.com" value={syncLink}
-                      onChange={(e) => setSyncLink(e.target.value)}
-                      className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg text-white focus:border-cyan-500 focus:outline-none" />
-                  </div>
-                </div>
-              )}
-
-              {mode === 'individual' && (
-                <div className="max-h-64 overflow-y-auto mb-6 space-y-3 pr-2">
-                  {individualData.map((p, i) => (
-                    <div key={p.id} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-                      <div className="font-bold text-sm text-cyan-400 mb-3">Pixel #{p.id}</div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <input type="color" value={p.color} onChange={(e) => updateIndividual(i, 'color', e.target.value)}
-                          className="w-full h-10 rounded cursor-pointer" />
-                        <input type="url" placeholder="https://..." value={p.link}
-                          onChange={(e) => updateIndividual(i, 'link', e.target.value)}
-                          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:border-cyan-500 focus:outline-none" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {errorMsg && (
-                <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3 mb-4">
-                  {errorMsg}
-                </div>
-              )}
-
-              <div className="flex gap-3">
-                <button onClick={onClose}
-                  className="flex-1 py-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition">
-                  Cancel
-                </button>
-                <button
-                  onClick={createOrderAndIntent}
-                  disabled={loading}
-                  className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? '⏳ Loading...' : `Continue to Payment — £${pixelIds.length}`}
-                </button>
-              </div>
-
-              <p className="text-center text-xs text-gray-600 mt-4">
-                By contributing you agree to our{' '}
-                <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400 underline">
-                  Terms &amp; Conditions
-                </button>
-                . All sales are final. £1 per pixel.
-              </p>
-            </>
+          {!showSuccess && (
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                {pixelIds.length} Pixel{pixelIds.length > 1 ? 's' : ''} — £{pixelIds.length}
+              </h2>
+              <button onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none">×</button>
+            </div>
           )}
 
-          {clientSecret && (
-            <Elements
-              stripe={stripePromise}
-              options={{
-                clientSecret,
-                appearance: {
-                  theme: 'night',
-                  variables: {
-                    colorPrimary: '#06b6d4',
-                    colorBackground: '#1f2937',
-                    colorText: '#ffffff',
-                    borderRadius: '8px',
-                  },
-                },
-              }}
-            >
-              <StripeCheckoutForm
-                pixelCount={pixelIds.length}
-                onSuccess={handlePaymentSuccess}
-                onCancel={() => { setClientSecret(null); }}
-              />
-            </Elements>
+          {showSuccess ? (
+            <SuccessScreen pixelCount={pixelIds.length} onClose={onClose} />
+          ) : (
+            <>
+              <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of the Pixel Art Grid.</p>
+
+              {!clientSecret && (
+                <>
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    <button
+                      onClick={() => setMode('sync')}
+                      className={`py-3 rounded-lg font-bold transition ${mode === 'sync' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                    >
+                      🎨 Same Color & Link
+                    </button>
+                    <button
+                      onClick={() => setMode('individual')}
+                      className={`py-3 rounded-lg font-bold transition ${mode === 'individual' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                    >
+                      🖌️ Individual Settings
+                    </button>
+                  </div>
+
+                  {mode === 'sync' && (
+                    <div className="space-y-4 mb-6">
+                      <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">🎨 Pixel Color</label>
+                        <input type="color" value={syncColor} onChange={(e) => setSyncColor(e.target.value)}
+                          className="w-full h-14 rounded-lg cursor-pointer border-2 border-gray-700" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-bold text-gray-300 mb-2">🔗 Link (optional)</label>
+                        <input type="url" placeholder="https://yoursite.com" value={syncLink}
+                          onChange={(e) => setSyncLink(e.target.value)}
+                          className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-lg text-white focus:border-cyan-500 focus:outline-none" />
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === 'individual' && (
+                    <div className="max-h-64 overflow-y-auto mb-6 space-y-3 pr-2">
+                      {individualData.map((p, i) => (
+                        <div key={p.id} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
+                          <div className="font-bold text-sm text-cyan-400 mb-3">Pixel #{p.id}</div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <input type="color" value={p.color} onChange={(e) => updateIndividual(i, 'color', e.target.value)}
+                              className="w-full h-10 rounded cursor-pointer" />
+                            <input type="url" placeholder="https://..." value={p.link}
+                              onChange={(e) => updateIndividual(i, 'link', e.target.value)}
+                              className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white text-sm focus:border-cyan-500 focus:outline-none" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {errorMsg && (
+                    <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3 mb-4">
+                      {errorMsg}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button onClick={onClose}
+                      className="flex-1 py-4 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={createOrderAndIntent}
+                      disabled={loading}
+                      className="flex-1 py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-lg font-bold shadow-lg shadow-green-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? '⏳ Loading...' : `Continue to Payment — £${pixelIds.length}`}
+                    </button>
+                  </div>
+
+                  <p className="text-center text-xs text-gray-600 mt-4">
+                    By contributing you agree to our{' '}
+                    <button onClick={onClose} className="text-cyan-600 hover:text-cyan-400 underline">
+                      Terms &amp; Conditions
+                    </button>
+                    . All sales are final. £1 per pixel.
+                  </p>
+                </>
+              )}
+
+              {clientSecret && (
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret,
+                    appearance: {
+                      theme: 'night',
+                      variables: {
+                        colorPrimary: '#06b6d4',
+                        colorBackground: '#1f2937',
+                        colorText: '#ffffff',
+                        borderRadius: '8px',
+                      },
+                    },
+                  }}
+                >
+                  <StripeCheckoutForm
+                    pixelCount={pixelIds.length}
+                    onSuccess={handlePaymentSuccess}
+                    onCancel={() => { setClientSecret(null); }}
+                  />
+                </Elements>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -637,6 +799,7 @@ export default function PixelApp() {
   const [searchInput, setSearchInput] = useState('');
   const [searchedPixel, setSearchedPixel] = useState<number | null>(null);
   const [hovered, setHovered] = useState<{ pixel: PixelData | null; x: number; y: number } | null>(null);
+  const [infoPixel, setInfoPixel] = useState<PixelData | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [claimedCount, setClaimedCount] = useState(0);
@@ -686,8 +849,14 @@ export default function PixelApp() {
     const id = Number(searchInput);
     if (!isNaN(id) && id >= 0 && id < TOTAL_PIXELS) {
       setSearchedPixel(id);
-      setSelected(new Set([id]));
+      const existing = pixels.get(id);
+      setInfoPixel(existing || { id, color: '#1a1a1a', link: '', status: 'free' });
     }
+  };
+
+  const handlePixelClickInfo = (id: number) => {
+    const existing = pixels.get(id);
+    setInfoPixel(existing || { id, color: '#1a1a1a', link: '', status: 'free' });
   };
 
   const buyRandom = () => {
@@ -705,7 +874,6 @@ export default function PixelApp() {
   const handlePaymentSuccess = () => {
     loadPixelsFromDatabase();
     setSelected(new Set());
-    setActivePixels(null);
   };
 
   if (showTerms) {
@@ -748,20 +916,25 @@ export default function PixelApp() {
       {/* ── SUBTITLE BANNER ── */}
       <div className="bg-gray-900/60 border-b border-gray-800 px-4 py-2 text-center flex-shrink-0">
         <p className="text-gray-400 text-xs">
-          A collaborative digital artwork — 1,000,000 pixels, £1 each. Own a piece of internet history.
+          A collaborative digital artwork — 1,000,000 pixels, £1 each. Own a piece of internet history. Click any coloured pixel to see its details, or zoom in with the controls bottom-right.
         </p>
       </div>
 
       {/* ── CANVAS ── */}
       <div className="flex-1 overflow-hidden">
-        <PixelGrid pixels={pixels} searchedPixel={searchedPixel} selected={selected}
+        <PixelGrid
+          pixels={pixels}
+          searchedPixel={searchedPixel}
+          selected={selected}
           onPixelSelect={toggleSelect}
-          onHover={(pixel, x, y) => setHovered(pixel ? { pixel, x, y } : null)} />
+          onHover={(pixel, x, y) => setHovered(pixel ? { pixel, x, y } : null)}
+          onPixelClickInfo={handlePixelClickInfo}
+        />
       </div>
 
-      {/* ── HOVER TOOLTIP ── */}
+      {/* ── HOVER TOOLTIP (desktop only, lightweight) ── */}
       {hovered?.pixel && (
-        <div className="fixed bg-gray-900 border-2 border-cyan-500/50 rounded-lg px-4 py-3 text-sm pointer-events-none shadow-2xl z-40"
+        <div className="hidden md:block fixed bg-gray-900 border-2 border-cyan-500/50 rounded-lg px-4 py-3 text-sm pointer-events-none shadow-2xl z-40"
           style={{ left: hovered.x + 16, top: hovered.y + 16 }}>
           <div className="font-bold text-cyan-300">Pixel #{hovered.pixel.id}</div>
           <div className={`text-sm ${hovered.pixel.status === 'sold' ? 'text-red-400' : hovered.pixel.status === 'reserved' ? 'text-yellow-400' : 'text-green-400'}`}>
@@ -773,8 +946,20 @@ export default function PixelApp() {
         </div>
       )}
 
+      {/* ── PIXEL INFO MODAL ── */}
+      {infoPixel && (
+        <PixelInfoModal
+          pixel={infoPixel}
+          onClose={() => setInfoPixel(null)}
+          onBuy={(id) => {
+            setSelected(new Set([id]));
+            setActivePixels([id]);
+          }}
+        />
+      )}
+
       {/* ── SELECTION BAR ── */}
-      {selected.size > 0 && (
+      {selected.size > 0 && !activePixels && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-6 py-4 shadow-2xl shadow-cyan-500/20 flex items-center gap-4">
           <span className="font-bold text-lg">{selected.size} pixel{selected.size > 1 ? 's' : ''} selected</span>
           <button onClick={() => setActivePixels([...selected])}
