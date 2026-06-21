@@ -12,6 +12,7 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
+const SITE_URL = 'https://pixelartgrid.vercel.app';
 
 // ============= TYPES =============
 interface PixelData {
@@ -33,6 +34,42 @@ interface Order {
   payment_proof_url?: string;
   expires_at: string;
   created_at: string;
+}
+
+// ============= SHARE HELPERS =============
+function buildShareText(pixelCount: number, pixelIds: number[]): string {
+  const firstPixel = pixelIds[0];
+  if (pixelCount === 1) {
+    return `I just claimed pixel #${firstPixel.toLocaleString()} on the Pixel Art Grid 🎨\n\n1,000,000 pixels. £1 each. I own a permanent piece of internet history.\n\nClaim yours:`;
+  }
+  return `I just claimed ${pixelCount.toLocaleString()} pixels on the Pixel Art Grid 🎨\n\n1,000,000 pixels. £1 each. I own a permanent piece of internet history.\n\nClaim yours:`;
+}
+
+function shareToTwitter(text: string, url: string) {
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+  window.open(twitterUrl, '_blank', 'noopener,noreferrer');
+}
+
+function shareToFacebook(url: string) {
+  const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+  window.open(fbUrl, '_blank', 'noopener,noreferrer');
+}
+
+function shareToWhatsApp(text: string, url: string) {
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(text + '\n' + url)}`;
+  window.open(waUrl, '_blank', 'noopener,noreferrer');
+}
+
+async function shareNative(text: string, url: string): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      await navigator.share({ text, url });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 // ============= PIXEL GRID COMPONENT =============
@@ -65,11 +102,9 @@ function PixelGrid({
     canvas.width = 1000;
     canvas.height = 1000;
 
-    // Base background — slightly lighter than pure black so empty pixels read as a grid, not a void
     ctx.fillStyle = '#111318';
     ctx.fillRect(0, 0, 1000, 1000);
 
-    // Subtle checkerboard every 50px to give the eye a sense of scale on an empty canvas
     ctx.fillStyle = '#15171d';
     for (let y = 0; y < 1000; y += 50) {
       for (let x = 0; x < 1000; x += 50) {
@@ -79,7 +114,6 @@ function PixelGrid({
       }
     }
 
-    // Render actual sold/reserved pixels on top
     pixels.forEach((p) => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
@@ -91,7 +125,6 @@ function PixelGrid({
       ctx.globalAlpha = 1;
     });
 
-    // Searched pixel — bright yellow marker, slightly larger so it's visible when zoomed out
     if (searchedPixel !== null) {
       const x = searchedPixel % GRID_SIZE;
       const y = Math.floor(searchedPixel / GRID_SIZE);
@@ -100,7 +133,6 @@ function PixelGrid({
       ctx.strokeRect(x - 2, y - 2, 5, 5);
     }
 
-    // Selected pixels — cyan marker
     selected.forEach((id) => {
       const x = id % GRID_SIZE;
       const y = Math.floor(id / GRID_SIZE);
@@ -167,7 +199,6 @@ function PixelGrid({
         </div>
       </div>
 
-      {/* Zoom controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-gray-900/90 border border-gray-700 rounded-lg p-2 backdrop-blur-sm">
         <button onClick={zoomIn} className="w-9 h-9 flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded text-lg font-bold transition">+</button>
         <button onClick={resetZoom} className="w-9 h-9 flex items-center justify-center bg-gray-800 hover:bg-gray-700 rounded text-xs font-bold transition">{Math.round(zoom * 100)}%</button>
@@ -322,14 +353,38 @@ function StripeCheckoutForm({
   );
 }
 
-// ============= SUCCESS SCREEN =============
+// ============= SUCCESS SCREEN WITH SHARE ============
 function SuccessScreen({
   pixelCount,
+  pixelIds,
   onClose,
 }: {
   pixelCount: number;
+  pixelIds: number[];
   onClose: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+  const shareText = buildShareText(pixelCount, pixelIds);
+  const shareUrl = SITE_URL;
+
+  const handleNativeShare = async () => {
+    const ok = await shareNative(shareText, shareUrl);
+    if (!ok) {
+      // Fallback: copy to clipboard if native share unavailable/cancelled
+      handleCopyLink();
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <div className="text-center py-4">
       <div className="text-6xl mb-4">🎉</div>
@@ -340,9 +395,51 @@ function SuccessScreen({
       <p className="text-gray-500 text-sm mb-6">
         Your pixel{pixelCount > 1 ? 's are' : ' is'} now permanently part of internet history.
       </p>
+
+      {/* SHARE SECTION */}
+      <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 mb-6 text-left">
+        <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wide">📣 Tell the world</p>
+
+        {/* Native share — shows on mobile, hidden on desktop where it's unsupported */}
+        <button
+          onClick={handleNativeShare}
+          className="w-full mb-3 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg font-bold transition flex items-center justify-center gap-2"
+        >
+          📤 Share
+        </button>
+
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <button
+            onClick={() => shareToTwitter(shareText, shareUrl)}
+            className="py-2.5 bg-black hover:bg-gray-900 border border-gray-700 text-white rounded-lg font-semibold text-sm transition flex items-center justify-center gap-1.5"
+          >
+            𝕏 Post
+          </button>
+          <button
+            onClick={() => shareToWhatsApp(shareText, shareUrl)}
+            className="py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition flex items-center justify-center gap-1.5"
+          >
+            WhatsApp
+          </button>
+          <button
+            onClick={() => shareToFacebook(shareUrl)}
+            className="py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-semibold text-sm transition flex items-center justify-center gap-1.5"
+          >
+            Facebook
+          </button>
+        </div>
+
+        <button
+          onClick={handleCopyLink}
+          className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm font-semibold transition"
+        >
+          {copied ? '✅ Copied to clipboard!' : '🔗 Copy share text + link'}
+        </button>
+      </div>
+
       <button
         onClick={onClose}
-        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-lg font-bold transition"
+        className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg font-bold transition"
       >
         Back to the Grid
       </button>
@@ -429,8 +526,8 @@ function PaymentModal({
         // webhook will still catch this even if this call fails
       }
     }
-    onSuccess(); // refresh canvas data immediately
-    setShowSuccess(true); // show confirmation instead of vanishing
+    onSuccess();
+    setShowSuccess(true);
   };
 
   return (
@@ -447,7 +544,7 @@ function PaymentModal({
           )}
 
           {showSuccess ? (
-            <SuccessScreen pixelCount={pixelIds.length} onClose={onClose} />
+            <SuccessScreen pixelCount={pixelIds.length} pixelIds={pixelIds} onClose={onClose} />
           ) : (
             <>
               <p className="text-gray-500 text-xs mb-6">Your pixel becomes a permanent part of the Pixel Art Grid.</p>
@@ -932,7 +1029,7 @@ export default function PixelApp() {
         />
       </div>
 
-      {/* ── HOVER TOOLTIP (desktop only, lightweight) ── */}
+      {/* ── HOVER TOOLTIP (desktop only) ── */}
       {hovered?.pixel && (
         <div className="hidden md:block fixed bg-gray-900 border-2 border-cyan-500/50 rounded-lg px-4 py-3 text-sm pointer-events-none shadow-2xl z-40"
           style={{ left: hovered.x + 16, top: hovered.y + 16 }}>
