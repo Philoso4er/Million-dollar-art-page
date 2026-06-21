@@ -8,22 +8,16 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // Support both SUPABASE_URL and VITE_SUPABASE_URL so local dev and Vercel both work
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('Missing env vars:', {
-      SUPABASE_URL: !!SUPABASE_URL,
-      SUPABASE_KEY: !!SUPABASE_KEY,
-    });
     return res.status(500).json({
       error: `Server configuration error: missing ${!SUPABASE_URL ? 'SUPABASE_URL' : 'SUPABASE_SERVICE_ROLE_KEY'}`,
     });
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
   const { action } = req.query;
 
   async function cleanupExpiredOrders() {
@@ -37,7 +31,6 @@ export default async function handler(req, res) {
           .update({ status: 'free', order_id: null, color: null, link: null })
           .in('order_id', expiredIds);
         await supabase.from('orders').update({ status: 'expired' }).in('id', expiredIds);
-        console.log(`Cleaned up ${expiredIds.length} expired orders`);
       }
     } catch (error) {
       console.error('Cleanup error:', error);
@@ -100,13 +93,10 @@ export default async function handler(req, res) {
       return res.status(200).json({ reference, order_id: order.id });
     }
 
-    // CONFIRM PAYPAL PAYMENT
-    if (action === 'confirm-paypal' && req.method === 'POST') {
-      const { paypalOrderId, reference } = req.body;
-
-      if (!paypalOrderId || !reference) {
-        return res.status(400).json({ error: 'Missing paypalOrderId or reference' });
-      }
+    // CONFIRM STRIPE PAYMENT (client-side fallback; webhook is the source of truth)
+    if (action === 'confirm-stripe' && req.method === 'POST') {
+      const { reference } = req.body;
+      if (!reference) return res.status(400).json({ error: 'Missing reference' });
 
       const { data: order } = await supabase
         .from('orders').select('*').eq('reference', reference).single();
@@ -115,10 +105,7 @@ export default async function handler(req, res) {
       if (order.status === 'paid') return res.status(200).json({ ok: true, message: 'Already paid' });
       if (order.status === 'expired') return res.status(400).json({ error: 'Order has expired' });
 
-      await supabase.from('orders')
-        .update({ status: 'paid', payment_proof_url: `paypal:${paypalOrderId}` })
-        .eq('id', order.id);
-
+      await supabase.from('orders').update({ status: 'paid' }).eq('id', order.id);
       await assignPixels(order);
 
       return res.status(200).json({ ok: true });
