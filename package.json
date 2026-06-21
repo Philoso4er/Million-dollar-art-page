@@ -1,5 +1,5 @@
 {
-  "name": "the-million-pixel-grid",
+  "name": "pixel-art-grid",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,9 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^2.8.0",
+    "@stripe/stripe-js": "^4.5.0",
     "@supabase/supabase-js": "^2.89.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "stripe": "^17.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
