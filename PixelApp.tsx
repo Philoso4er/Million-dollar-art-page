@@ -102,17 +102,16 @@ function PixelGrid({
     canvas.width = 1000;
     canvas.height = 1000;
 
-    ctx.fillStyle = '#111318';
+    // True matte black — maximum contrast so any colored pixel pops immediately
+    ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 1000, 1000);
 
-    ctx.fillStyle = '#15171d';
-    for (let y = 0; y < 1000; y += 50) {
-      for (let x = 0; x < 1000; x += 50) {
-        if ((x / 50 + y / 50) % 2 === 0) {
-          ctx.fillRect(x, y, 50, 50);
-        }
-      }
-    }
+    // Sold/reserved pixels are rendered as a small block centered on their true
+    // coordinate (instead of a literal 1x1 dot) purely for VISIBILITY at scale.
+    // The actual "owned" pixel is still just the 1, this just makes it findable
+    // at a glance instead of needing to search for it.
+    const RENDER_SIZE = 3;
+    const OFFSET = Math.floor(RENDER_SIZE / 2);
 
     pixels.forEach((p) => {
       const x = p.id % GRID_SIZE;
@@ -121,7 +120,12 @@ function PixelGrid({
       if (p.status === 'reserved') {
         ctx.globalAlpha = 0.5;
       }
-      ctx.fillRect(x, y, 1, 1);
+      ctx.fillRect(
+        Math.max(0, x - OFFSET),
+        Math.max(0, y - OFFSET),
+        RENDER_SIZE,
+        RENDER_SIZE
+      );
       ctx.globalAlpha = 1;
     });
 
@@ -154,6 +158,27 @@ function PixelGrid({
     return null;
   };
 
+  // Pixels render as a small 3x3 block for visibility, so a click/hover anywhere
+  // within that block radius should resolve to the actual owned pixel underneath,
+  // not just the exact center coordinate.
+  const RENDER_RADIUS = 1;
+  const findNearbyOwnedPixel = (id: number): number | null => {
+    if (pixels.has(id)) return id;
+    const x = id % GRID_SIZE;
+    const y = Math.floor(id / GRID_SIZE);
+    for (let dy = -RENDER_RADIUS; dy <= RENDER_RADIUS; dy++) {
+      for (let dx = -RENDER_RADIUS; dx <= RENDER_RADIUS; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue;
+        const nid = ny * GRID_SIZE + nx;
+        if (pixels.has(nid)) return nid;
+      }
+    }
+    return null;
+  };
+
   const zoomIn = () => setZoom((z) => Math.min(z * 1.5, 20));
   const zoomOut = () => setZoom((z) => Math.max(z / 1.5, 1));
   const resetZoom = () => setZoom(1);
@@ -180,19 +205,23 @@ function PixelGrid({
             onMouseMove={(e) => {
               const id = getPixelId(e);
               if (id !== null) {
-                const pixel = pixels.get(id);
-                onHover(pixel || { id, color: '#0a0a0a', link: '', status: 'free' }, e.clientX, e.clientY);
+                const nearbyId = findNearbyOwnedPixel(id);
+                if (nearbyId !== null) {
+                  onHover(pixels.get(nearbyId)!, e.clientX, e.clientY);
+                } else {
+                  onHover({ id, color: '#0a0a0a', link: '', status: 'free' }, e.clientX, e.clientY);
+                }
               }
             }}
             onMouseLeave={() => onHover(null, 0, 0)}
             onClick={(e) => {
               const id = getPixelId(e);
               if (id === null) return;
-              const existing = pixels.get(id);
-              if (!existing || existing.status === 'free') {
-                onPixelSelect(id);
+              const nearbyId = findNearbyOwnedPixel(id);
+              if (nearbyId !== null) {
+                onPixelClickInfo(nearbyId);
               } else {
-                onPixelClickInfo(id);
+                onPixelSelect(id);
               }
             }}
           />
