@@ -12,7 +12,7 @@ const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
-const SITE_URL = 'https://pixelartgrid.vercel.app';
+const SITE_URL = 'https://pixelartgrid.online';
 
 // ============= TYPES =============
 interface PixelData {
@@ -106,6 +106,24 @@ function PixelGrid({
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 1000, 1000);
 
+    // Faint grey grid overlay (every 10px) for a classic graph-paper look.
+    // Spaced out rather than every single pixel, otherwise it'd just be a
+    // solid grey wash instead of a visible grid.
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 0.3;
+    const GRID_SPACING = 10;
+    for (let i = 0; i <= 1000; i += GRID_SPACING) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i, 1000);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(0, i);
+      ctx.lineTo(1000, i);
+      ctx.stroke();
+    }
+
     // Sold/reserved pixels are rendered as a small block centered on their true
     // coordinate (instead of a literal 1x1 dot) purely for VISIBILITY at scale.
     // The actual "owned" pixel is still just the 1, this just makes it findable
@@ -116,17 +134,21 @@ function PixelGrid({
     pixels.forEach((p) => {
       const x = p.id % GRID_SIZE;
       const y = Math.floor(p.id / GRID_SIZE);
+      const boxX = Math.max(0, x - OFFSET);
+      const boxY = Math.max(0, y - OFFSET);
+
       ctx.fillStyle = p.color || '#666666';
       if (p.status === 'reserved') {
         ctx.globalAlpha = 0.5;
       }
-      ctx.fillRect(
-        Math.max(0, x - OFFSET),
-        Math.max(0, y - OFFSET),
-        RENDER_SIZE,
-        RENDER_SIZE
-      );
+      ctx.fillRect(boxX, boxY, RENDER_SIZE, RENDER_SIZE);
       ctx.globalAlpha = 1;
+
+      // Thin dark border around each box so pixels read as distinct squares
+      // rather than blending into neighbors when the canvas is densely filled.
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 0.4;
+      ctx.strokeRect(boxX, boxY, RENDER_SIZE, RENDER_SIZE);
     });
 
     if (searchedPixel !== null) {
@@ -1086,16 +1108,38 @@ export default function PixelApp() {
 
       {/* ── SELECTION BAR ── */}
       {selected.size > 0 && !activePixels && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-6 py-4 shadow-2xl shadow-cyan-500/20 flex items-center gap-4">
-          <span className="font-bold text-lg">{selected.size} pixel{selected.size > 1 ? 's' : ''} selected</span>
-          <button onClick={() => setActivePixels([...selected])}
-            className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/50 transition">
-            Buy Now — £{selected.size}
-          </button>
-          <button onClick={() => setSelected(new Set())}
-            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition">
-            Clear
-          </button>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-6 py-4 shadow-2xl shadow-cyan-500/20 max-w-[92vw]">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="font-bold text-lg whitespace-nowrap">{selected.size} pixel{selected.size > 1 ? 's' : ''} selected</span>
+            <button onClick={() => setActivePixels([...selected])}
+              className="px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/50 transition">
+              Buy Now — £{selected.size}
+            </button>
+            <button onClick={() => setSelected(new Set())}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition">
+              Clear
+            </button>
+          </div>
+
+          {/* Pixel ID chips — shows exactly which pixel(s) are selected, tap a chip to remove it.
+              This matters most on mobile, where there's no hover tooltip to confirm the tap. */}
+          <div className="flex flex-wrap gap-2 mt-3 max-w-[80vw]">
+            {[...selected].slice(0, 8).map((id) => (
+              <button
+                key={id}
+                onClick={() => toggleSelect(id)}
+                title="Tap to remove"
+                className="px-2 py-1 bg-gray-800 hover:bg-red-900/50 border border-gray-700 hover:border-red-500 rounded text-xs font-mono text-cyan-300 hover:text-red-300 transition"
+              >
+                #{id.toLocaleString()} ×
+              </button>
+            ))}
+            {selected.size > 8 && (
+              <span className="px-2 py-1 text-xs text-gray-500 self-center">
+                +{selected.size - 8} more
+              </span>
+            )}
+          </div>
         </div>
       )}
 
