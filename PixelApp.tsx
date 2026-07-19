@@ -685,6 +685,10 @@ function PaymentModal({
                   stripe={stripePromise}
                   options={{
                     clientSecret,
+                    wallets: {
+                      applePay: 'always',
+                      googlePay: 'always',
+                    },
                     appearance: {
                       theme: 'night',
                       variables: {
