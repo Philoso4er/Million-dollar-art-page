@@ -14,6 +14,43 @@ const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
 const SITE_URL = 'https://pixelartgrid.online';
 
+// ============= DISPLAY-ONLY SEED PIXELS =============
+// These are purely visual — scattered across the canvas to make it look alive
+// at first glance during in-person demos. They are NOT stored in the database,
+// do NOT count as sold, and clicking them shows "Available" so anyone can buy.
+// Uses a deterministic seeded random so the pattern is always identical on
+// every device/reload — no flickering or inconsistency.
+const SEED_PIXEL_COUNT = 2000;
+const SEED_COLORS = [
+  '#ff3366', '#ff6b35', '#ffd700', '#00ff88', '#00cfff',
+  '#a855f7', '#ec4899', '#10b981', '#3b82f6', '#f59e0b',
+  '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316',
+];
+
+function seededRandom(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+
+function generateSeedPixels(): Map<number, string> {
+  const rng = seededRandom(42);
+  const map = new Map<number, string>();
+  while (map.size < SEED_PIXEL_COUNT) {
+    const id = Math.floor(rng() * TOTAL_PIXELS);
+    if (!map.has(id)) {
+      const color = SEED_COLORS[Math.floor(rng() * SEED_COLORS.length)];
+      map.set(id, color);
+    }
+  }
+  return map;
+}
+
+// Generated once at module load, never changes
+const SEED_PIXELS = generateSeedPixels();
+
 // ============= TYPES =============
 interface PixelData {
   id: number;
@@ -105,6 +142,19 @@ function PixelGrid({
     // True matte black — maximum contrast so any colored pixel pops immediately
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 1000, 1000);
+
+    // Display-only seed pixels — purely visual, not in DB, not sold
+    // Drawn first at lower opacity so real purchased pixels paint on top distinctly
+    ctx.globalAlpha = 0.35;
+    SEED_PIXELS.forEach((color, id) => {
+      // Skip if a real pixel exists at this coordinate — real one will paint over anyway
+      if (pixels.has(id)) return;
+      const x = id % GRID_SIZE;
+      const y = Math.floor(id / GRID_SIZE);
+      ctx.fillStyle = color;
+      ctx.fillRect(x - 1, y - 1, 3, 3);
+    });
+    ctx.globalAlpha = 1;
 
     // Faint grey grid overlay (every 10px) for a classic graph-paper look.
     // Spaced out rather than every single pixel, otherwise it'd just be a
@@ -360,6 +410,9 @@ function StripeCheckoutForm({
     const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       redirect: 'if_required',
+      confirmParams: {
+        return_url: 'https://pixelartgrid.online',
+      },
     });
 
     if (error) {
@@ -959,6 +1012,26 @@ export default function PixelApp() {
 
   useEffect(() => {
     if (localStorage.getItem('admin_auth') === 'true') setIsAdmin(true);
+  }, []);
+
+  // Handle return from redirect-based payment methods (Klarna, Revolut Pay, etc.)
+  // Stripe appends ?payment_intent=... to the URL on return — we confirm the order here.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentIntentId = params.get('payment_intent');
+    const redirectStatus = params.get('redirect_status');
+    if (paymentIntentId && redirectStatus === 'succeeded') {
+      // Find the order reference from the payment intent metadata via our API
+      fetch('/api/orders?action=confirm-redirect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentIntentId }),
+      }).then(() => {
+        loadPixelsFromDatabase();
+        // Clean up URL params without reloading the page
+        window.history.replaceState({}, '', window.location.pathname);
+      }).catch(console.error);
+    }
   }, []);
 
   useEffect(() => { loadPixelsFromDatabase(); }, []);
