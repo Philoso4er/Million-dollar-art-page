@@ -7,6 +7,50 @@ export const config = {
   },
 };
 
+function encodePixelMeta({ owner, message, url }) {
+  return JSON.stringify({
+    owner: owner || '',
+    message: message || '',
+    url: url || '',
+  });
+}
+
+function resolvePixelFields(order, pixelId) {
+  let pixelColor = order.color;
+  let owner = '';
+  let message = '';
+  let url = '';
+
+  if (order.individual_data && Array.isArray(order.individual_data)) {
+    const match = order.individual_data.find((p) => p.id === pixelId);
+    if (match) {
+      pixelColor = match.color;
+      owner = match.owner || '';
+      message = match.message || '';
+      url = match.link || match.url || '';
+    }
+  } else if (order.link && String(order.link).trim().startsWith('{')) {
+    try {
+      const meta = JSON.parse(order.link);
+      owner = meta.owner || '';
+      message = meta.message || '';
+      url = meta.url || '';
+    } catch {
+      url = order.link || '';
+    }
+  } else {
+    url = order.link || '';
+  }
+
+  return {
+    pixel_id: pixelId,
+    status: 'sold',
+    color: pixelColor,
+    link: encodePixelMeta({ owner, message, url }),
+    order_id: order.id,
+  };
+}
+
 async function getRawBody(req) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
@@ -69,18 +113,7 @@ export default async function handler(req, res) {
         .update({ status: 'paid', payment_proof_url: `stripe:${paymentIntent.id}` })
         .eq('id', order.id);
 
-      const pixelUpdates = order.pixel_ids.map((pixelId) => {
-        let pixelColor = order.color;
-        let pixelLink = order.link;
-        if (order.individual_data && Array.isArray(order.individual_data)) {
-          const match = order.individual_data.find((p) => p.id === pixelId);
-          if (match) {
-            pixelColor = match.color;
-            pixelLink = match.link;
-          }
-        }
-        return { pixel_id: pixelId, status: 'sold', color: pixelColor, link: pixelLink, order_id: order.id };
-      });
+      const pixelUpdates = order.pixel_ids.map((pixelId) => resolvePixelFields(order, pixelId));
 
       const { error: pixelError } = await supabase.from('pixels').upsert(pixelUpdates);
       if (pixelError) {
