@@ -16,36 +16,6 @@ const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
 const SITE_URL = 'https://pixelartgrid.online';
 
-// ============= DISPLAY-ONLY SEED PIXELS =============
-const SEED_PIXEL_COUNT = 2000;
-const SEED_COLORS = [
-  '#ff3366', '#ff6b35', '#ffd700', '#00ff88', '#00cfff',
-  '#a855f7', '#ec4899', '#10b981', '#3b82f6', '#f59e0b',
-  '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316',
-];
-
-function seededRandom(seed: number): () => number {
-  let s = seed;
-  return () => {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0xffffffff;
-  };
-}
-
-function generateSeedPixels(): Map<number, string> {
-  const rng = seededRandom(42);
-  const map = new Map<number, string>();
-  while (map.size < SEED_PIXEL_COUNT) {
-    const id = Math.floor(rng() * TOTAL_PIXELS);
-    if (!map.has(id)) {
-      map.set(id, SEED_COLORS[Math.floor(rng() * SEED_COLORS.length)]);
-    }
-  }
-  return map;
-}
-
-const SEED_PIXELS = generateSeedPixels();
-
 // ============= SHARE HELPERS =============
 function pixelShareUrl(id: number) {
   return `${SITE_URL}/pixel/${id}`;
@@ -197,16 +167,6 @@ function PixelGrid({
 
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, 1000, 1000);
-
-    ctx.globalAlpha = 0.35;
-    SEED_PIXELS.forEach((color, id) => {
-      if (pixels.has(id)) return;
-      const x = id % GRID_SIZE;
-      const y = Math.floor(id / GRID_SIZE);
-      ctx.fillStyle = color;
-      ctx.fillRect(x - 1, y - 1, 3, 3);
-    });
-    ctx.globalAlpha = 1;
 
     ctx.strokeStyle = '#1a1a1a';
     ctx.lineWidth = 0.3;
