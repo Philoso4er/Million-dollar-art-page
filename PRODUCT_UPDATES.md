@@ -6,85 +6,54 @@ Date: 6 October 2026 (Europe/London)
 - Every pixel costs exactly **£1**. No premium pixels, dynamic pricing, tiers, NFTs, crypto, auctions, subscriptions, memberships, or ads.
 - Proposition: **1,000,000 pixels · £1 each · choose colour · leave your mark.**
 
-## Audit summary (before changes)
+## Follow-up PR — restore claim flexibility (this branch)
 
-| Area | Status |
-|------|--------|
-| Interactive canvas grid (zoom) | ✅ Existed in `PixelApp.tsx` |
-| Pan / game-like navigation | ⚠️ Scroll-only; improved with drag-pan + wheel zoom |
-| Click free pixel → buy | ⚠️ Multi-select bar first; now opens claim flow immediately |
-| Colour picker | ✅ Existed |
-| Owner name + optional message | ❌ Had URL “link” field instead |
-| £1 Stripe checkout | ✅ Wired (`/api/create-payment-intent`, webhook) |
-| Live claimed counter | ⚠️ Header only; now prominent hero counter + remaining |
-| “What am I getting?” | ❌ Missing; added |
-| Pixel identity (owner / colour / date / message) | ❌ Missing; added via JSON in `pixels.link` |
-| Shareable `/pixel/:id` | ❌ Missing; stubbed (hash-free path + Vercel rewrite) |
-| Post-purchase share | ✅ Existed; improved with identity + pixel URL |
-| Mobile | ⚠️ Partial; bottom sheets, touch pan, tighter header |
+Restores behaviours users expected from the pre–PR #1 checkout, while keeping the new homepage (headline, live counter, grid centre).
 
-Legacy unused files still present: `components/PixelGrid.tsx`, `components/PaymentModal.tsx` (older Flutterwave-oriented UI). Live UI is entirely in `PixelApp.tsx`.
+### UX fixes
+1. **Full colour picker** — native `input type="color"` + hex field (any colour). Limited swatches removed as the primary control. Colour is **required**.
+2. **Richer share** — after claim and on pixel identity: native Share, X, Facebook, WhatsApp, LinkedIn, Copy link (not X-only).
+3. **Multi-pixel selection** — tap free pixels to add/remove; bottom bar shows selection chips; **Buy Now — £N** (£1 × count). Modal supports **Same colour & link** or **Individual settings** (per-pixel colour + link).
+4. **Optional purchase fields** — name, optional message, optional redirect/hover link. **Only colour is required.**
 
-## What we changed (MUST DO)
+### API
+- `api/orders.js`: owner no longer required; colour required (sync or per individual row). Added `confirm-redirect` for Stripe redirect methods.
+- `api/create-payment-intent.js`: surface Supabase connectivity errors as 503 instead of masking as “Order not found”.
 
-1. **Homepage centres on the grid** with positioning:
-   - Headline: **LEAVE YOUR MARK ON THE INTERNET.**
-   - Subcopy: 1,000,000 pixels · £1 each · Choose a pixel. Choose its colour. Leave your mark.
-2. **Interactive grid**: zoom buttons, scroll-wheel zoom, drag-to-pan, click/tap free pixel → claim.
-3. **Simple claim flow** (inline modal, not multi-page): colour → name/username → optional message → **CLAIM PIXEL — £1** → Stripe (or demo preview if Stripe env missing).
-4. **“What am I getting?”** panel (5 steps + what you receive) beside / under the CTA and inside the claim modal.
-5. **Pixel identity** after claim / on sold pixels: id, owner, colour, claimed date, message; shareable route **`/pixel/:id`** (opens identity modal).
-6. **Optional messages** in the claim form (max 280 chars).
-7. **Live counter**: `X / 1,000,000 PIXELS CLAIMED` + remaining + progress bar (fed from sold pixels via `/api/pixels`).
-8. **Confirmation / share**: success screen with pixel card basics, X / WhatsApp / Facebook / copy link / native share.
-9. **Mobile**: sticky compact header, bottom-sheet modals, touch-friendly controls, `viewport-fit=cover`.
+## Stripe / Supabase payment diagnosis (6 Oct 2026)
 
-Owner + message are stored in the existing `pixels.link` column as JSON  
-`{"owner":"…","message":"…","url":""}` so no Supabase migration is required. Legacy plain URLs still parse.
+Live probes against `https://pixelartgrid.vercel.app` (no secrets printed):
 
-## Files touched
-- `PixelApp.tsx` — main UX rewrite
-- `types.ts` — `owner` / `message`, `encodePixelMeta` / `parsePixelMeta` / `enrichPixel`
-- `api/orders.js` — requires owner; stores meta JSON
-- `api/stripe-webhook.js` — assigns meta JSON on payment success
-- `src/lib/loadPixels.ts` — enrich pixels
-- `src/env.d.ts` — Stripe publishable key typing
-- `index.html` — title / meta / viewport
-- `vercel.json` — SPA rewrites for `/pixel/:id`
-- `PRODUCT_UPDATES.md` — this file
+| Check | Result |
+|-------|--------|
+| Client Stripe publishable key in live JS bundle | **Present** (`pk_live_…` embedded — Vite build has `VITE_STRIPE_PUBLISHABLE_KEY`) |
+| `POST /api/create-payment-intent` missing secret? | Does **not** return “missing STRIPE_SECRET_KEY” → server **likely has** `STRIPE_SECRET_KEY` |
+| `GET /api/pixels` | **500** repeatedly: `{"error":"TypeError: fetch failed"}` → Supabase client is configured but **cannot reach the project** (classic paused / unreachable Supabase) |
+| `POST /api/orders?action=create` (with colour) | Same Supabase **fetch failed** once past validation |
+| Local `.env.local` | Has Supabase + legacy Flutterwave/PayPal keys; **no** `VITE_STRIPE_PUBLISHABLE_KEY` / `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` |
+| `confirm-redirect` | Was called from the client after redirect payments but **was not implemented** until this PR |
+
+### Likely root cause of “payment not working”
+1. **Supabase project paused or unreachable** from Vercel — order create + pixel load fail before Stripe Elements can charge. Unpause/restore the Supabase project and confirm `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` on Vercel match it.
+2. After Supabase is healthy: verify Stripe webhook endpoint `https://pixelartgrid.vercel.app/api/stripe-webhook` is registered and `STRIPE_WEBHOOK_SECRET` is set (pixels mark `sold` via webhook / `confirm-stripe` / `confirm-redirect`).
+3. Local preview of real checkout also needs Stripe keys added to `.env.local` (do not commit).
+
+No secrets were committed or invented.
+
+## Env vars expected (do not commit secrets)
+**Client (Vite):** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`  
+**Server:** `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_PASSWORD`  
+Optional alias: `SUPABASE_URL` (server falls back to `VITE_SUPABASE_URL`).
 
 ## How to run locally
 ```bash
 cd Million-dollar-art-page
 npm install
-npm run dev          # Vite on http://localhost:3000
-npm run build        # production build
+npm run build
+npm run dev
 ```
 
-API routes (`/api/*`) need Vercel (or similar) serverless hosting. For full checkout locally you typically use `vercel dev` with secrets set.
-
-## Env vars expected (do not commit secrets)
-**Client (Vite):** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_STRIPE_PUBLISHABLE_KEY`  
-**Server:** `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `ADMIN_PASSWORD`  
-Legacy Flutterwave/PayPal keys may still exist in `.env.local` but the live claim path is Stripe.
-
-## Blockers
-- **GitHub push**: `gh` not authenticated — do not push from this agent.
-- **Stripe**: if `VITE_STRIPE_PUBLISHABLE_KEY` / `STRIPE_SECRET_KEY` are missing, the UI shows a demo success preview instead of charging.
-- **Supabase**: pixel load/checkout need working URL + service role on the deployment.
-- **Optional DB columns**: if you later want first-class `owner` / `message` / `claimed_at` columns, migrate and stop encoding into `link`.
-
-## TODO — NEXT (not implemented)
-- Recent activity feed (“someone in London claimed…”)
-- Recently claimed / “People who were here” strip
-- Leaderboard (most pixels — still £1 each)
-- FAQ section on homepage
-- Personal pixel page polish (dedicated layout, OG tags)
-- Shareable Pixel Card image download
+## TODO — NEXT
+- Activity feed, recently claimed, leaderboard, FAQ
+- Pixel Card image download
 - Build Something / draw mode
-- Community challenges, country stats, sold-out experience
-
-## Suggested next PR step
-1. Add `VITE_STRIPE_PUBLISHABLE_KEY` to local + Vercel env (keep secrets out of git).
-2. Deploy and smoke-test: tap free pixel → claim → Stripe test card → `/pixel/:id` shows owner/message.
-3. Follow-up PR: activity feed + FAQ + Pixel Card image (NEXT list).
