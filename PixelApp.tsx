@@ -84,6 +84,56 @@ function shareToWhatsApp(text: string, url: string) {
   );
 }
 
+function shareToLinkedIn(url: string) {
+  window.open(
+    `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
+    '_blank',
+    'noopener,noreferrer'
+  );
+}
+
+function ShareButtons({
+  text,
+  url,
+  compact = false,
+}: {
+  text: string;
+  url: string;
+  compact?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(`${text}\n${url}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* ignore */ }
+  };
+  const btn = compact
+    ? 'py-2 px-2 rounded-lg text-xs font-semibold transition'
+    : 'py-2.5 rounded-lg text-sm font-semibold transition';
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => shareNative(text, url).then((ok) => { if (!ok) handleCopy(); })}
+        className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl font-bold transition"
+      >
+        📤 Share
+      </button>
+      <div className={`grid ${compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'} gap-2`}>
+        <button type="button" onClick={() => shareToTwitter(text, url)} className={`${btn} bg-black hover:bg-gray-900 border border-gray-700`}>𝕏 / X</button>
+        <button type="button" onClick={() => shareToFacebook(url)} className={`${btn} bg-blue-700 hover:bg-blue-800`}>Facebook</button>
+        <button type="button" onClick={() => shareToWhatsApp(text, url)} className={`${btn} bg-green-600 hover:bg-green-700`}>WhatsApp</button>
+        <button type="button" onClick={() => shareToLinkedIn(url)} className={`${btn} bg-sky-800 hover:bg-sky-700`}>LinkedIn</button>
+      </div>
+      <button type="button" onClick={handleCopy} className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-semibold">
+        {copied ? '✅ Copied!' : '🔗 Copy link'}
+      </button>
+    </div>
+  );
+}
+
 async function shareNative(text: string, url: string): Promise<boolean> {
   if (typeof navigator !== 'undefined' && navigator.share) {
     try {
@@ -341,7 +391,7 @@ function PixelGrid({
         <button type="button" onClick={zoomOut} aria-label="Zoom out" className="w-10 h-10 flex items-center justify-center bg-gray-800 hover:bg-gray-700 active:bg-gray-600 rounded-lg text-lg font-bold transition">−</button>
       </div>
       <div className="absolute bottom-3 left-3 text-[10px] sm:text-xs text-gray-500 bg-black/60 px-2 py-1 rounded pointer-events-none">
-        Drag to pan · Scroll / buttons to zoom · Tap a pixel to claim
+        Drag to pan · Scroll / buttons to zoom · Tap free pixels to select (multi-select OK)
       </div>
     </div>
   );
@@ -357,12 +407,12 @@ function WhatYouGetPanel() {
       <ol className="space-y-2 text-sm text-gray-300 mb-4">
         <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">1.</span> Choose an available pixel on the grid.</li>
         <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">2.</span> Choose its colour.</li>
-        <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">3.</span> Add your name and an optional message.</li>
+        <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">3.</span> Optionally add your name, message, and a redirect/hover link.</li>
         <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">4.</span> Pay exactly <span className="text-white font-bold">£1</span>.</li>
         <li className="flex gap-2"><span className="text-cyan-500 font-mono font-bold">5.</span> Your pixel becomes part of the permanent grid.</li>
       </ol>
       <div className="text-xs text-gray-500 border-t border-gray-800 pt-3 leading-relaxed">
-        You get: a permanent coloured pixel with your identity, optional message, and a shareable page —
+        You get: a permanent coloured pixel (optional name, message, and link) plus a shareable page —
         a digital mark on a 1,000,000-pixel collaborative artwork. Not an investment, NFT, or ownership of the project.
       </div>
     </div>
@@ -388,15 +438,6 @@ function PixelInfoModal({
   const owner = pixel.owner || meta.owner;
   const message = pixel.message || meta.message;
   const url = meta.url;
-  const [copied, setCopied] = useState(false);
-
-  const copyPixelLink = async () => {
-    try {
-      await navigator.clipboard.writeText(pixelShareUrl(pixel.id));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
-  };
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
@@ -472,17 +513,12 @@ function PixelInfoModal({
         )}
 
         {(isSold || shareable) && (
-          <div className="flex gap-2 mb-3">
-            <button type="button" onClick={copyPixelLink} className="flex-1 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-semibold transition">
-              {copied ? '✅ Copied' : '🔗 Copy pixel link'}
-            </button>
-            <button
-              type="button"
-              onClick={() => shareToTwitter(buildShareText(1, [pixel.id], owner), pixelShareUrl(pixel.id))}
-              className="px-4 py-2.5 bg-black border border-gray-700 hover:bg-gray-900 rounded-lg text-sm font-semibold transition"
-            >
-              𝕏
-            </button>
+          <div className="mb-3">
+            <ShareButtons
+              compact
+              text={buildShareText(1, [pixel.id], owner)}
+              url={pixelShareUrl(pixel.id)}
+            />
           </div>
         )}
 
@@ -580,18 +616,9 @@ function SuccessScreen({
   message: string;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
   const primaryId = pixelIds[0];
-  const shareText = buildShareText(pixelCount, pixelIds, owner);
+  const shareText = buildShareText(pixelCount, pixelIds, owner || undefined);
   const shareUrl = pixelCount === 1 ? pixelShareUrl(primaryId) : SITE_URL;
-
-  const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* ignore */ }
-  };
 
   return (
     <div className="text-center py-2">
@@ -608,7 +635,7 @@ function SuccessScreen({
             <div className="font-bold text-cyan-300">
               {pixelCount === 1 ? `#${primaryId.toLocaleString()}` : `${pixelCount} pixels`}
             </div>
-            <div className="text-sm text-gray-300">{owner}</div>
+            {owner ? <div className="text-sm text-gray-300">{owner}</div> : null}
           </div>
         </div>
         {message && <p className="text-sm text-gray-400 italic mb-2">“{message}”</p>}
@@ -620,21 +647,7 @@ function SuccessScreen({
 
       <div className="bg-gray-800/60 border border-gray-700 rounded-xl p-4 mb-5 text-left">
         <p className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wide">Share your pixel</p>
-        <button
-          type="button"
-          onClick={() => shareNative(shareText, shareUrl).then((ok) => { if (!ok) handleCopyLink(); })}
-          className="w-full mb-3 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white rounded-xl font-bold transition"
-        >
-          📤 Share
-        </button>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <button type="button" onClick={() => shareToTwitter(shareText, shareUrl)} className="py-2.5 bg-black hover:bg-gray-900 border border-gray-700 rounded-lg text-sm font-semibold">𝕏</button>
-          <button type="button" onClick={() => shareToWhatsApp(shareText, shareUrl)} className="py-2.5 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-semibold">WhatsApp</button>
-          <button type="button" onClick={() => shareToFacebook(shareUrl)} className="py-2.5 bg-blue-700 hover:bg-blue-800 rounded-lg text-sm font-semibold">Facebook</button>
-        </div>
-        <button type="button" onClick={handleCopyLink} className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-semibold">
-          {copied ? '✅ Copied!' : '🔗 Copy link'}
-        </button>
+        <ShareButtons text={shareText} url={shareUrl} />
       </div>
 
       <button type="button" onClick={onClose} className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold transition">
@@ -644,7 +657,15 @@ function SuccessScreen({
   );
 }
 
-// ============= CLAIM / PAYMENT MODAL (simple flow) =============
+// ============= CLAIM / PAYMENT MODAL =============
+type ClaimMode = 'sync' | 'individual';
+
+interface IndividualPixelForm {
+  id: number;
+  color: string;
+  link: string;
+}
+
 function ClaimModal({
   pixelIds,
   onClose,
@@ -654,9 +675,14 @@ function ClaimModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const [mode, setMode] = useState<ClaimMode>('sync');
   const [color, setColor] = useState('#ff3366');
   const [owner, setOwner] = useState('');
   const [message, setMessage] = useState('');
+  const [link, setLink] = useState('');
+  const [individualData, setIndividualData] = useState<IndividualPixelForm[]>(
+    pixelIds.map((id) => ({ id, color: '#ff3366', link: '' }))
+  );
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reference, setReference] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -666,26 +692,55 @@ function ClaimModal({
 
   const primaryId = pixelIds[0];
   const total = pixelIds.length;
+  const multi = total > 1;
 
-  const PRESET_COLORS = ['#ff3366', '#ffd700', '#00ff88', '#00cfff', '#a855f7', '#ffffff', '#ef4444', '#3b82f6'];
+  const updateIndividual = (index: number, key: 'color' | 'link', value: string) => {
+    setIndividualData((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [key]: value };
+      return next;
+    });
+  };
+
+  const previewColor = mode === 'individual' ? individualData[0]?.color || color : color;
 
   const createOrderAndIntent = async () => {
-    const name = owner.trim();
-    if (!name) {
-      setErrorMsg('Please enter your name or username.');
+    // Only colour is required
+    if (mode === 'sync' && !color) {
+      setErrorMsg('Please choose a colour.');
       return;
     }
+    if (mode === 'individual' && individualData.some((p) => !p.color)) {
+      setErrorMsg('Every selected pixel needs a colour.');
+      return;
+    }
+
     setLoading(true);
     setErrorMsg(null);
     try {
-      const payload = {
-        pixelIds,
-        mode: 'sync' as const,
-        color,
-        owner: name,
-        message: message.trim(),
-        link: '',
-      };
+      const payload =
+        mode === 'sync'
+          ? {
+              pixelIds,
+              mode: 'sync' as const,
+              color,
+              owner: owner.trim(),
+              message: message.trim(),
+              link: link.trim(),
+            }
+          : {
+              pixelIds,
+              mode: 'individual' as const,
+              owner: owner.trim(),
+              message: message.trim(),
+              individual: individualData.map((p) => ({
+                id: p.id,
+                color: p.color,
+                link: p.link.trim(),
+                owner: owner.trim(),
+                message: message.trim(),
+              })),
+            };
 
       const orderRes = await fetch('/api/orders?action=create', {
         method: 'POST',
@@ -706,7 +761,6 @@ function ClaimModal({
 
       const intentData = await intentRes.json();
       if (!intentRes.ok) {
-        // Allow UI demo when Stripe isn't configured
         if (String(intentData.error || '').includes('STRIPE') || intentRes.status === 500) {
           setDemoMode(true);
           setClientSecret('demo');
@@ -718,7 +772,6 @@ function ClaimModal({
       setClientSecret(intentData.clientSecret);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong';
-      // Local / missing API: still show completed UI path as demo claim
       if (msg.includes('Failed to fetch') || msg.includes('Network')) {
         setDemoMode(true);
         setShowSuccess(true);
@@ -765,7 +818,9 @@ function ClaimModal({
                     <>{total} pixels — £{total}</>
                   )}
                 </h2>
-                <p className="text-green-400 text-sm font-semibold mt-1">🟩 Available · £{total === 1 ? '1' : total}</p>
+                <p className="text-green-400 text-sm font-semibold mt-1">
+                  🟩 Available · £{total} · £1 each
+                </p>
               </div>
               <button type="button" onClick={onClose} className="text-gray-400 hover:text-white text-3xl font-bold leading-none" aria-label="Close">×</button>
             </div>
@@ -775,7 +830,7 @@ function ClaimModal({
             <SuccessScreen
               pixelCount={total}
               pixelIds={pixelIds}
-              color={color}
+              color={previewColor}
               owner={owner.trim()}
               message={message.trim()}
               onClose={onClose}
@@ -784,35 +839,86 @@ function ClaimModal({
             <>
               {!clientSecret && (
                 <div className="space-y-5">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">Choose your colour</label>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {PRESET_COLORS.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => setColor(c)}
-                          className={`w-9 h-9 rounded-lg border-2 transition ${color === c ? 'border-cyan-400 scale-110' : 'border-gray-700'}`}
-                          style={{ backgroundColor: c }}
-                          aria-label={`Colour ${c}`}
-                        />
-                      ))}
+                  {multi && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMode('sync')}
+                        className={`py-2.5 rounded-xl font-bold text-sm transition ${mode === 'sync' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                      >
+                        Same colour &amp; link
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMode('individual')}
+                        className={`py-2.5 rounded-xl font-bold text-sm transition ${mode === 'individual' ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                      >
+                        Individual settings
+                      </button>
+                    </div>
+                  )}
+
+                  {mode === 'sync' && (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-300 mb-2">
+                        Colour <span className="text-red-400">*</span>
+                      </label>
                       <input
                         type="color"
                         value={color}
                         onChange={(e) => setColor(e.target.value)}
-                        className="w-9 h-9 rounded-lg cursor-pointer border-2 border-gray-700 bg-transparent"
-                        title="Custom colour"
+                        className="w-full h-14 rounded-xl cursor-pointer border-2 border-gray-700 bg-transparent"
+                        title="Choose any colour"
+                        aria-label="Pixel colour"
                       />
+                      <div className="flex items-center gap-3 mt-2 p-3 bg-gray-800 rounded-xl border border-gray-700">
+                        <div className="w-10 h-10 rounded-md border border-gray-600" style={{ backgroundColor: color }} />
+                        <input
+                          type="text"
+                          value={color}
+                          onChange={(e) => {
+                            const v = e.target.value.trim();
+                            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setColor(v.length === 7 ? v : v);
+                            if (/^#[0-9a-fA-F]{6}$/.test(v)) setColor(v);
+                          }}
+                          className="flex-1 bg-transparent font-mono text-sm text-gray-300 focus:outline-none"
+                          spellCheck={false}
+                          aria-label="Hex colour"
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-1">Full colour palette — pick any colour you want.</p>
                     </div>
-                    <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-xl border border-gray-700">
-                      <div className="w-10 h-10 rounded-md border border-gray-600" style={{ backgroundColor: color }} />
-                      <span className="font-mono text-sm text-gray-400">{color}</span>
+                  )}
+
+                  {mode === 'individual' && (
+                    <div className="max-h-56 overflow-y-auto space-y-3 pr-1">
+                      {individualData.map((p, i) => (
+                        <div key={p.id} className="bg-gray-800 p-3 rounded-xl border border-gray-700">
+                          <div className="font-bold text-sm text-cyan-400 mb-2">Pixel #{p.id.toLocaleString()}</div>
+                          <label className="block text-xs text-gray-400 mb-1">Colour *</label>
+                          <input
+                            type="color"
+                            value={p.color}
+                            onChange={(e) => updateIndividual(i, 'color', e.target.value)}
+                            className="w-full h-10 rounded-lg cursor-pointer border border-gray-600 mb-2"
+                          />
+                          <label className="block text-xs text-gray-400 mb-1">Redirect / hover link (optional)</label>
+                          <input
+                            type="url"
+                            placeholder="https://…"
+                            value={p.link}
+                            onChange={(e) => updateIndividual(i, 'link', e.target.value)}
+                            className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:border-cyan-500 focus:outline-none"
+                          />
+                        </div>
+                      ))}
                     </div>
-                  </div>
+                  )}
 
                   <div>
-                    <label className="block text-sm font-bold text-gray-300 mb-2">Your name / username</label>
+                    <label className="block text-sm font-bold text-gray-300 mb-2">
+                      Your name / username <span className="text-gray-600 font-normal">(optional)</span>
+                    </label>
                     <input
                       type="text"
                       maxLength={40}
@@ -838,7 +944,25 @@ function ClaimModal({
                     <div className="text-right text-[10px] text-gray-600 mt-1">{message.length}/280</div>
                   </div>
 
-                  <WhatYouGetPanel />
+                  {mode === 'sync' && (
+                    <div>
+                      <label className="block text-sm font-bold text-gray-300 mb-2">
+                        Redirect / hover link <span className="text-gray-600 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="url"
+                        placeholder="https://yoursite.com"
+                        value={link}
+                        onChange={(e) => setLink(e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-800 border-2 border-gray-700 rounded-xl text-white focus:border-cyan-500 focus:outline-none"
+                      />
+                      <p className="text-[11px] text-gray-500 mt-1">Shown on hover and used when someone opens your pixel.</p>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-gray-500 border border-gray-800 rounded-xl p-3">
+                    Only <span className="text-white font-semibold">colour</span> is required. Name, message, and link are optional. Every pixel costs exactly £1.
+                  </div>
 
                   {errorMsg && (
                     <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3">{errorMsg}</div>
@@ -850,7 +974,7 @@ function ClaimModal({
                     disabled={loading}
                     className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-green-500/30 transition disabled:opacity-50"
                   >
-                    {loading ? 'Preparing…' : `CLAIM PIXEL — £${total}`}
+                    {loading ? 'Preparing…' : total === 1 ? 'CLAIM PIXEL — £1' : `CLAIM ${total} PIXELS — £${total}`}
                   </button>
 
                   <p className="text-center text-xs text-gray-600">
@@ -1139,14 +1263,23 @@ export default function PixelApp() {
     setActivePixels(ids);
   };
 
-  /** Primary UX: tap free pixel → claim immediately */
-  const handlePixelSelect = (id: number) => {
+  /** Tap free pixels to multi-select; sold/reserved open identity */
+  const toggleSelect = (id: number) => {
     const existing = pixels.get(id);
     if (existing && existing.status && existing.status !== 'free') {
       setInfoPixel(existing);
       return;
     }
-    openClaim([id]);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handlePixelSelect = (id: number) => {
+    toggleSelect(id);
   };
 
   const handleSearch = () => {
@@ -1234,7 +1367,7 @@ export default function PixelApp() {
           LEAVE YOUR MARK<br className="sm:hidden" /> ON THE INTERNET.
         </h1>
         <p className="text-gray-400 text-sm sm:text-base max-w-xl mx-auto mb-4">
-          Choose a pixel. Choose its colour. Leave your mark.
+          Choose one pixel or many. Choose colours. Leave your mark.
         </p>
         <LiveCounter claimed={claimedCount} />
         <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
@@ -1303,6 +1436,48 @@ export default function PixelApp() {
           }}
           onBuy={(id) => openClaim([id])}
         />
+      )}
+
+      {/* Multi-select checkout bar */}
+      {selected.size > 0 && !activePixels && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 border-2 border-cyan-500 rounded-xl px-4 sm:px-6 py-4 shadow-2xl shadow-cyan-500/20 max-w-[94vw] w-[min(36rem,94vw)]">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="font-bold text-base sm:text-lg whitespace-nowrap">
+              {selected.size} pixel{selected.size > 1 ? 's' : ''} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setActivePixels([...selected])}
+              className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 rounded-lg font-bold shadow-lg shadow-green-500/40 transition"
+            >
+              Buy Now — £{selected.size}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg font-semibold transition"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {[...selected].slice(0, 10).map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => toggleSelect(id)}
+                title="Tap to remove"
+                className="px-2 py-1 bg-gray-800 hover:bg-red-900/50 border border-gray-700 hover:border-red-500 rounded text-xs font-mono text-cyan-300 hover:text-red-300 transition"
+              >
+                #{id.toLocaleString()} ×
+              </button>
+            ))}
+            {selected.size > 10 && (
+              <span className="px-2 py-1 text-xs text-gray-500 self-center">+{selected.size - 10} more</span>
+            )}
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2">Tap more free pixels to add them · £1 each · then Buy Now</p>
+        </div>
       )}
 
       {activePixels && (

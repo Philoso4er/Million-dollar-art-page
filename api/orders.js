@@ -101,8 +101,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Invalid pixel selection' });
       }
 
-      if (!owner || !String(owner).trim()) {
-        return res.status(400).json({ error: 'Name / username is required' });
+      // Colour is required; name / message / link are optional
+      if (mode === 'individual') {
+        if (!Array.isArray(individual) || individual.length === 0) {
+          return res.status(400).json({ error: 'Individual pixel data is required' });
+        }
+        const missingColor = individual.find((p) => !p || !p.color);
+        if (missingColor) {
+          return res.status(400).json({ error: 'Every pixel needs a colour' });
+        }
+      } else if (!color) {
+        return res.status(400).json({ error: 'Colour is required' });
       }
 
       const { data: existing } = await supabase
@@ -119,18 +128,18 @@ export default async function handler(req, res) {
       const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
       const syncMeta = encodePixelMeta({
-        owner: String(owner).trim().slice(0, 40),
+        owner: owner ? String(owner).trim().slice(0, 40) : '',
         message: message ? String(message).trim().slice(0, 280) : '',
-        url: link || '',
+        url: link ? String(link).trim() : '',
       });
 
-      // Enrich individual rows with owner/message defaults
+      // Enrich individual rows with optional owner/message defaults
       const individualEnriched = Array.isArray(individual)
         ? individual.map((p) => ({
             id: p.id,
             color: p.color,
-            owner: (p.owner || owner || '').trim().slice(0, 40),
-            message: (p.message || message || '').trim().slice(0, 280),
+            owner: String(p.owner || owner || '').trim().slice(0, 40),
+            message: String(p.message || message || '').trim().slice(0, 280),
             link: p.link || '',
           }))
         : null;
@@ -211,6 +220,44 @@ export default async function handler(req, res) {
     if (action === 'cleanup' && req.method === 'POST') {
       await cleanupExpiredOrders();
       return res.status(200).json({ success: true });
+    }
+
+    // CONFIRM AFTER REDIRECT-BASED STRIPE METHODS (Klarna etc.)
+    // Client returns with ?payment_intent=...; webhook remains source of truth.
+    if (action === 'confirm-redirect' && req.method === 'POST') {
+      const { paymentIntentId, reference } = req.body || {};
+      let order = null;
+
+      if (reference) {
+        const { data } = await supabase.from('orders').select('*').eq('reference', reference).single();
+        order = data;
+      } else if (paymentIntentId) {
+        const { data } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('payment_proof_url', `stripe_pending:${paymentIntentId}`)
+          .maybeSingle();
+        order = data;
+        if (!order) {
+          const { data: paid } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('payment_proof_url', `stripe:${paymentIntentId}`)
+            .maybeSingle();
+          order = paid;
+        }
+      }
+
+      if (!order) return res.status(404).json({ error: 'Order not found for payment' });
+      if (order.status === 'paid') return res.status(200).json({ ok: true, message: 'Already paid' });
+      if (order.status === 'expired') return res.status(400).json({ error: 'Order has expired' });
+
+      await supabase.from('orders').update({
+        status: 'paid',
+        payment_proof_url: paymentIntentId ? `stripe:${paymentIntentId}` : order.payment_proof_url,
+      }).eq('id', order.id);
+      await assignPixels(order);
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ error: 'Invalid action' });

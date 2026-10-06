@@ -38,7 +38,15 @@ export default async function handler(req, res) {
       .eq('reference', reference)
       .single();
 
-    if (orderError || !order) {
+    if (orderError && !order) {
+      // Distinguish missing order from Supabase connectivity failures
+      const msg = orderError.message || '';
+      if (/fetch failed|Failed to fetch|ECONNREFUSED|ENOTFOUND|network/i.test(msg)) {
+        return res.status(503).json({ error: `Supabase unreachable: ${msg}` });
+      }
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
     if (order.status === 'paid') {
