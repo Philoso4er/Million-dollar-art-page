@@ -1,5 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 
+function encodePixelMeta({ owner, message, url }) {
+  return JSON.stringify({
+    owner: owner || '',
+    message: message || '',
+    url: url || '',
+  });
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,16 +45,49 @@ export default async function handler(req, res) {
     }
   }
 
-  async function assignPixels(order) {
-    const pixelUpdates = order.pixel_ids.map(pixelId => {
-      let pixelColor = order.color;
-      let pixelLink = order.link;
-      if (order.individual_data) {
-        const match = order.individual_data.find(p => p.id === pixelId);
-        if (match) { pixelColor = match.color; pixelLink = match.link; }
+  function resolvePixelFields(order, pixelId) {
+    let pixelColor = order.color;
+    let owner = '';
+    let message = '';
+    let url = '';
+
+    if (order.individual_data && Array.isArray(order.individual_data)) {
+      const match = order.individual_data.find(p => p.id === pixelId);
+      if (match) {
+        pixelColor = match.color;
+        owner = match.owner || '';
+        message = match.message || '';
+        url = match.link || match.url || '';
       }
-      return { pixel_id: pixelId, status: 'sold', color: pixelColor, link: pixelLink, order_id: order.id };
-    });
+    } else {
+      // Sync mode: order.link may be JSON meta or legacy URL
+      if (order.link && String(order.link).trim().startsWith('{')) {
+        try {
+          const meta = JSON.parse(order.link);
+          owner = meta.owner || '';
+          message = meta.message || '';
+          url = meta.url || '';
+        } catch {
+          url = order.link || '';
+        }
+      } else {
+        url = order.link || '';
+        owner = order.owner || '';
+        message = order.message || '';
+      }
+    }
+
+    return {
+      pixel_id: pixelId,
+      status: 'sold',
+      color: pixelColor,
+      link: encodePixelMeta({ owner, message, url }),
+      order_id: order.id,
+    };
+  }
+
+  async function assignPixels(order) {
+    const pixelUpdates = order.pixel_ids.map(pixelId => resolvePixelFields(order, pixelId));
     await supabase.from('pixels').upsert(pixelUpdates);
   }
 
@@ -54,10 +95,14 @@ export default async function handler(req, res) {
     // CREATE ORDER
     if (action === 'create' && req.method === 'POST') {
       await cleanupExpiredOrders();
-      const { pixelIds, mode, color, link, individual } = req.body;
+      const { pixelIds, mode, color, link, owner, message, individual } = req.body;
 
       if (!Array.isArray(pixelIds) || pixelIds.length === 0) {
         return res.status(400).json({ error: 'Invalid pixel selection' });
+      }
+
+      if (!owner || !String(owner).trim()) {
+        return res.status(400).json({ error: 'Name / username is required' });
       }
 
       const { data: existing } = await supabase
@@ -73,13 +118,30 @@ export default async function handler(req, res) {
       const reference = 'PIX-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
       const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
 
+      const syncMeta = encodePixelMeta({
+        owner: String(owner).trim().slice(0, 40),
+        message: message ? String(message).trim().slice(0, 280) : '',
+        url: link || '',
+      });
+
+      // Enrich individual rows with owner/message defaults
+      const individualEnriched = Array.isArray(individual)
+        ? individual.map((p) => ({
+            id: p.id,
+            color: p.color,
+            owner: (p.owner || owner || '').trim().slice(0, 40),
+            message: (p.message || message || '').trim().slice(0, 280),
+            link: p.link || '',
+          }))
+        : null;
+
       const { data: order, error } = await supabase.from('orders').insert({
         reference,
         pixel_ids: pixelIds,
-        amount_usd: pixelIds.length,
-        color: mode === 'sync' ? color : null,
-        link: mode === 'sync' ? link : null,
-        individual_data: mode === 'individual' ? individual : null,
+        amount_usd: pixelIds.length, // £1 each — amount stored as pounds
+        color: mode === 'individual' ? null : color,
+        link: mode === 'individual' ? null : syncMeta,
+        individual_data: mode === 'individual' ? individualEnriched : null,
         status: 'pending',
         expires_at: expiresAt,
       }).select().single();
