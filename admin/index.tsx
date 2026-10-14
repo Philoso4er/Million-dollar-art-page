@@ -5,11 +5,21 @@ export default function AdminPage() {
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
 
-  const login = () => {
-    if (password === import.meta.env.VITE_ADMIN_PASSWORD) {
-      setAuthenticated(true);
-    } else {
-      alert("Incorrect password");
+  const login = async () => {
+    // Password is checked server-side against ADMIN_PASSWORD; nothing secret ships in the bundle.
+    try {
+      const res = await fetch("/api/admin-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (res.ok) {
+        setAuthenticated(true);
+      } else {
+        alert("Incorrect password");
+      }
+    } catch {
+      alert("Could not reach the server. Please try again.");
     }
   };
 
