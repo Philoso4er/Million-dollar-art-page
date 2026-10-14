@@ -1,16 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
-import {
-  Elements,
-  PaymentElement,
-  useStripe,
-  useElements,
-} from '@stripe/react-stripe-js';
 import TermsPage from './TermsPage';
 import { PixelData, Order, parsePixelMeta, enrichPixel } from './types';
 
-const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
 
 const GRID_SIZE = 1000;
 const TOTAL_PIXELS = 1_000_000;
@@ -496,69 +487,6 @@ function PixelInfoModal({
   );
 }
 
-// ============= STRIPE CHECKOUT FORM =============
-function StripeCheckoutForm({
-  pixelCount,
-  onSuccess,
-  onCancel,
-}: {
-  pixelCount: number;
-  onSuccess: () => void;
-  onCancel: () => void;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-
-    setLoading(true);
-    setErrorMsg(null);
-
-    const { error, paymentIntent } = await stripe.confirmPayment({
-      elements,
-      redirect: 'if_required',
-      confirmParams: { return_url: SITE_URL },
-    });
-
-    if (error) {
-      setErrorMsg(error.message || 'Payment failed. Please try again.');
-      setLoading(false);
-      return;
-    }
-
-    if (paymentIntent && paymentIntent.status === 'succeeded') {
-      onSuccess();
-    } else {
-      setErrorMsg('Payment did not complete. Please try again.');
-      setLoading(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
-      {errorMsg && (
-        <div className="text-red-400 text-sm bg-red-900/20 border border-red-700 rounded-lg p-3">{errorMsg}</div>
-      )}
-      <div className="flex gap-3">
-        <button type="button" onClick={onCancel} className="flex-1 py-3.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-bold transition">
-          Back
-        </button>
-        <button
-          type="submit"
-          disabled={!stripe || loading}
-          className="flex-1 py-3.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl font-bold transition disabled:opacity-50"
-        >
-          {loading ? 'Processing…' : `Pay £${pixelCount}`}
-        </button>
-      </div>
-    </form>
-  );
-}
 
 // ============= SUCCESS SCREEN =============
 function SuccessScreen({
@@ -643,12 +571,10 @@ function ClaimModal({
   const [individualData, setIndividualData] = useState<IndividualPixelForm[]>(
     pixelIds.map((id) => ({ id, color: '#ff3366', link: '' }))
   );
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [reference, setReference] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
 
   const primaryId = pixelIds[0];
   const total = pixelIds.length;
@@ -713,54 +639,20 @@ function ClaimModal({
 
       setReference(orderData.reference);
 
-      const intentRes = await fetch('/api/create-payment-intent', {
+      const checkoutRes = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reference: orderData.reference }),
       });
-
-      const intentData = await intentRes.json();
-      if (!intentRes.ok) {
-        if (String(intentData.error || '').includes('STRIPE') || intentRes.status === 500) {
-          setDemoMode(true);
-          setClientSecret('demo');
-          return;
-        }
-        throw new Error(intentData.error || 'Failed to start payment');
-      }
-
-      setClientSecret(intentData.clientSecret);
+      const checkoutData = await checkoutRes.json();
+      if (!checkoutRes.ok || !checkoutData.url) throw new Error(checkoutData.error || 'Failed to start payment');
+      window.location.assign(checkoutData.url); // Stripe-hosted Checkout
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Something went wrong';
-      if (msg.includes('Failed to fetch') || msg.includes('Network')) {
-        setDemoMode(true);
-        setShowSuccess(true);
-        onSuccess();
-      } else {
-        setErrorMsg(msg);
-      }
+      setErrorMsg(msg.includes('Failed to fetch') ? 'Network error, please try again.' : msg);
     } finally {
       setLoading(false);
     }
-  };
-
-  const handlePaymentSuccess = async () => {
-    if (reference) {
-      try {
-        await fetch('/api/orders?action=confirm-stripe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reference }),
-        });
-      } catch { /* webhook is source of truth */ }
-    }
-    onSuccess();
-    setShowSuccess(true);
-  };
-
-  const completeDemo = () => {
-    onSuccess();
-    setShowSuccess(true);
   };
 
   return (
@@ -797,7 +689,7 @@ function ClaimModal({
             />
           ) : (
             <>
-              {!clientSecret && (
+              {(
                 <div className="space-y-5">
                   {multi && (
                     <div className="grid grid-cols-2 gap-2">
@@ -943,43 +835,6 @@ function ClaimModal({
                 </div>
               )}
 
-              {clientSecret && clientSecret !== 'demo' && stripePromise && (
-                <Elements
-                  stripe={stripePromise}
-                  options={{
-                    clientSecret,
-                    appearance: {
-                      theme: 'night',
-                      variables: {
-                        colorPrimary: '#06b6d4',
-                        colorBackground: '#1f2937',
-                        colorText: '#ffffff',
-                        borderRadius: '8px',
-                      },
-                    },
-                  }}
-                >
-                  <StripeCheckoutForm
-                    pixelCount={total}
-                    onSuccess={handlePaymentSuccess}
-                    onCancel={() => setClientSecret(null)}
-                  />
-                </Elements>
-              )}
-
-              {demoMode && clientSecret === 'demo' && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl border border-yellow-600/40 bg-yellow-950/30 text-sm text-yellow-200">
-                    Stripe isn’t configured in this environment. You can preview the success screen; live £1 payments need <code className="text-yellow-100">VITE_STRIPE_PUBLISHABLE_KEY</code> and <code className="text-yellow-100">STRIPE_SECRET_KEY</code> on the server.
-                  </div>
-                  <button type="button" onClick={completeDemo} className="w-full py-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-xl font-bold">
-                    Preview claim success
-                  </button>
-                  <button type="button" onClick={() => { setClientSecret(null); setDemoMode(false); }} className="w-full py-3 bg-gray-800 rounded-xl font-semibold">
-                    Back
-                  </button>
-                </div>
-              )}
             </>
           )}
         </div>
@@ -1007,6 +862,7 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
       if (!res.ok) setError(data.error || 'Invalid password');
       else {
         localStorage.setItem('admin_auth', 'true');
+        sessionStorage.setItem('admin_pw', password);
         onSuccess();
       }
     } catch {
@@ -1044,7 +900,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
 
   const loadOrders = async () => {
     try {
-      const res = await fetch('/api/orders?action=list');
+      const res = await fetch('/api/orders?action=list', { headers: { 'x-admin-password': sessionStorage.getItem('admin_pw') || '' } });
       const data = await res.json();
       setOrders(data.orders || []);
     } catch (err) {
@@ -1153,7 +1009,7 @@ export default function PixelApp() {
   const [deepLinkHandled, setDeepLinkHandled] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem('admin_auth') === 'true') setIsAdmin(true);
+    if (localStorage.getItem('admin_auth') === 'true' && sessionStorage.getItem('admin_pw')) setIsAdmin(true);
   }, []);
 
   const loadPixelsFromDatabase = useCallback(async () => {
@@ -1182,17 +1038,19 @@ export default function PixelApp() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paymentIntentId = params.get('payment_intent');
-    const redirectStatus = params.get('redirect_status');
-    if (paymentIntentId && redirectStatus === 'succeeded') {
-      fetch('/api/orders?action=confirm-redirect', {
+    const sessionId = params.get('session_id');
+    if (params.get('checkout') === 'success' && sessionId) {
+      fetch('/api/orders?action=confirm-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentIntentId }),
-      }).then(() => {
+        body: JSON.stringify({ sessionId }),
+      }).finally(() => {
         loadPixelsFromDatabase();
         window.history.replaceState({}, '', window.location.pathname);
-      }).catch(console.error);
+        alert('Payment received — your pixels are yours! 🎉');
+      });
+    } else if (params.get('checkout') === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, [loadPixelsFromDatabase]);
 

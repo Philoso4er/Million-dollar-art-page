@@ -138,7 +138,7 @@ export default function TermsPage({ onClose }: { onClose: () => void }) {
                 with no hidden fees added by us.
               </p>
               <p>
-                Payment processors (Flutterwave, PayPal) may apply their own transaction fees,
+                Our payment processor (Stripe) may apply their own transaction fees,
                 which are borne by the buyer where applicable.
               </p>
             </div>

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getStripe, fulfilOrder, isAdmin } from './_lib/payments.js';
 
 function encodePixelMeta({ owner, message, url }) {
   return JSON.stringify({
@@ -12,7 +13,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-password');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -125,7 +126,7 @@ export default async function handler(req, res) {
       }
 
       const reference = 'PIX-' + Date.now() + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-      const expiresAt = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + 35 * 60 * 1000 /* covers the 31-min Stripe Checkout session */).toISOString();
 
       const syncMeta = encodePixelMeta({
         owner: owner ? String(owner).trim().slice(0, 40) : '',
@@ -164,22 +165,22 @@ export default async function handler(req, res) {
       return res.status(200).json({ reference, order_id: order.id });
     }
 
-    // CONFIRM STRIPE PAYMENT (client-side fallback; webhook is the source of truth)
-    if (action === 'confirm-stripe' && req.method === 'POST') {
-      const { reference } = req.body;
-      if (!reference) return res.status(400).json({ error: 'Missing reference' });
+    // CONFIRM AFTER STRIPE CHECKOUT REDIRECT (webhook is the source of truth;
+    // this only fulfils if Stripe itself says the session is paid)
+    if (action === 'confirm-session' && req.method === 'POST') {
+      const { sessionId } = req.body || {};
+      const stripe = getStripe();
+      if (!sessionId || !stripe) return res.status(400).json({ error: 'Missing session' });
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.payment_status !== 'paid') return res.status(202).json({ ok: false, pending: true });
+      const reference = session.metadata?.reference || session.client_reference_id;
+      const r = await fulfilOrder(supabase, reference, `stripe:${session.id}`);
+      return res.status(r.ok ? 200 : r.status || 500).json(r);
+    }
 
-      const { data: order } = await supabase
-        .from('orders').select('*').eq('reference', reference).single();
-
-      if (!order) return res.status(404).json({ error: 'Order not found' });
-      if (order.status === 'paid') return res.status(200).json({ ok: true, message: 'Already paid' });
-      if (order.status === 'expired') return res.status(400).json({ error: 'Order has expired' });
-
-      await supabase.from('orders').update({ status: 'paid' }).eq('id', order.id);
-      await assignPixels(order);
-
-      return res.status(200).json({ ok: true });
+    // Admin-only actions below require the x-admin-password header
+    if (['list', 'update', 'delete', 'cleanup'].includes(action) && !isAdmin(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     // LIST ORDERS (Admin)
@@ -220,44 +221,6 @@ export default async function handler(req, res) {
     if (action === 'cleanup' && req.method === 'POST') {
       await cleanupExpiredOrders();
       return res.status(200).json({ success: true });
-    }
-
-    // CONFIRM AFTER REDIRECT-BASED STRIPE METHODS (Klarna etc.)
-    // Client returns with ?payment_intent=...; webhook remains source of truth.
-    if (action === 'confirm-redirect' && req.method === 'POST') {
-      const { paymentIntentId, reference } = req.body || {};
-      let order = null;
-
-      if (reference) {
-        const { data } = await supabase.from('orders').select('*').eq('reference', reference).single();
-        order = data;
-      } else if (paymentIntentId) {
-        const { data } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('payment_proof_url', `stripe_pending:${paymentIntentId}`)
-          .maybeSingle();
-        order = data;
-        if (!order) {
-          const { data: paid } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('payment_proof_url', `stripe:${paymentIntentId}`)
-            .maybeSingle();
-          order = paid;
-        }
-      }
-
-      if (!order) return res.status(404).json({ error: 'Order not found for payment' });
-      if (order.status === 'paid') return res.status(200).json({ ok: true, message: 'Already paid' });
-      if (order.status === 'expired') return res.status(400).json({ error: 'Order has expired' });
-
-      await supabase.from('orders').update({
-        status: 'paid',
-        payment_proof_url: paymentIntentId ? `stripe:${paymentIntentId}` : order.payment_proof_url,
-      }).eq('id', order.id);
-      await assignPixels(order);
-      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ error: 'Invalid action' });
