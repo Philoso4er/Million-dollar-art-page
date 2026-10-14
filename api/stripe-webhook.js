@@ -1,140 +1,56 @@
-import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+// Stripe webhook: marks pixels as owned once Checkout is paid.
+// Dashboard endpoint: https://<your-domain>/api/stripe-webhook
+// Events: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.expired
+import { getStripe, getSupabase, fulfilOrder, releaseOrder } from './_lib/payments.js';
 
-export const config = {
-  api: {
-    bodyParser: false, // Stripe requires the raw body to verify the signature
-  },
-};
-
-function encodePixelMeta({ owner, message, url }) {
-  return JSON.stringify({
-    owner: owner || '',
-    message: message || '',
-    url: url || '',
-  });
-}
-
-function resolvePixelFields(order, pixelId) {
-  let pixelColor = order.color;
-  let owner = '';
-  let message = '';
-  let url = '';
-
-  if (order.individual_data && Array.isArray(order.individual_data)) {
-    const match = order.individual_data.find((p) => p.id === pixelId);
-    if (match) {
-      pixelColor = match.color;
-      owner = match.owner || '';
-      message = match.message || '';
-      url = match.link || match.url || '';
-    }
-  } else if (order.link && String(order.link).trim().startsWith('{')) {
-    try {
-      const meta = JSON.parse(order.link);
-      owner = meta.owner || '';
-      message = meta.message || '';
-      url = meta.url || '';
-    } catch {
-      url = order.link || '';
-    }
-  } else {
-    url = order.link || '';
-  }
-
-  return {
-    pixel_id: pixelId,
-    status: 'sold',
-    color: pixelColor,
-    link: encodePixelMeta({ owner, message, url }),
-    order_id: order.id,
-  };
-}
+export const config = { api: { bodyParser: false } };
 
 async function getRawBody(req) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   return Buffer.concat(chunks);
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
-  const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-  const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('Stripe webhook: missing required env vars');
+  const stripe = getStripe();
+  const supabase = getSupabase();
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!stripe || !supabase || !secret) {
+    console.error('Stripe webhook: missing env vars');
     return res.status(500).json({ error: 'Server configuration error' });
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY);
-  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
   let event;
   try {
-    const rawBody = await getRawBody(req);
-    const signature = req.headers['stripe-signature'];
-    event = stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
+    event = stripe.webhooks.constructEvent(await getRawBody(req), req.headers['stripe-signature'], secret);
   } catch (err) {
     console.error('Stripe webhook signature verification failed:', err.message);
     return res.status(400).json({ error: 'Invalid signature' });
   }
 
   try {
-    if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object;
-      const reference = paymentIntent.metadata?.reference;
-
-      if (!reference) {
-        console.error('Webhook: no reference in payment intent metadata');
-        return res.status(400).json({ error: 'No reference found' });
+    const obj = event.data.object;
+    const reference = obj.metadata?.reference || obj.client_reference_id;
+    switch (event.type) {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
+        if (obj.payment_status !== 'paid') return res.status(200).json({ received: true, pending: true });
+        if (!reference) return res.status(200).json({ received: true, ignored: 'no reference' });
+        const r = await fulfilOrder(supabase, reference, `stripe:${obj.id}`);
+        // 409 = paid but conflicted: ack so Stripe stops retrying; it's logged for a manual refund.
+        if (!r.ok && r.status !== 409) return res.status(r.status || 500).json({ error: r.error });
+        return res.status(200).json({ received: true });
       }
-
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('reference', reference)
-        .single();
-
-      if (orderError || !order) {
-        console.error('Webhook: order not found for reference', reference);
-        return res.status(404).json({ error: 'Order not found' });
-      }
-
-      if (order.status === 'paid') {
-        return res.status(200).json({ success: true, message: 'Already processed' });
-      }
-
-      await supabase
-        .from('orders')
-        .update({ status: 'paid', payment_proof_url: `stripe:${paymentIntent.id}` })
-        .eq('id', order.id);
-
-      const pixelUpdates = order.pixel_ids.map((pixelId) => resolvePixelFields(order, pixelId));
-
-      const { error: pixelError } = await supabase.from('pixels').upsert(pixelUpdates);
-      if (pixelError) {
-        console.error('Webhook: failed to assign pixels', pixelError);
-        return res.status(500).json({ error: 'Failed to assign pixels' });
-      }
-
-      console.log(`Webhook: order ${reference} paid, ${order.pixel_ids.length} pixels assigned`);
-      return res.status(200).json({ success: true });
+      case 'checkout.session.expired':
+      case 'checkout.session.async_payment_failed':
+        if (reference) await releaseOrder(supabase, reference);
+        return res.status(200).json({ received: true });
+      default:
+        return res.status(200).json({ received: true });
     }
-
-    if (event.type === 'payment_intent.payment_failed') {
-      const paymentIntent = event.data.object;
-      const reference = paymentIntent.metadata?.reference;
-      console.log(`Webhook: payment failed for order ${reference}`);
-      return res.status(200).json({ received: true });
-    }
-
-    return res.status(200).json({ received: true });
   } catch (err) {
     console.error('Stripe webhook handler error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: 'Webhook handler error' });
   }
 }

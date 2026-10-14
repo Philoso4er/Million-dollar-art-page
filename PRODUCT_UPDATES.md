@@ -30,7 +30,7 @@ Live probes against `https://pixelartgrid.vercel.app` (no secrets printed):
 | `POST /api/create-payment-intent` missing secret? | Does **not** return “missing STRIPE_SECRET_KEY” → server **likely has** `STRIPE_SECRET_KEY` |
 | `GET /api/pixels` | **500** repeatedly: `{"error":"TypeError: fetch failed"}` → Supabase client is configured but **cannot reach the project** (classic paused / unreachable Supabase) |
 | `POST /api/orders?action=create` (with colour) | Same Supabase **fetch failed** once past validation |
-| Local `.env.local` | Has Supabase + legacy Flutterwave/PayPal keys; **no** `VITE_STRIPE_PUBLISHABLE_KEY` / `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` |
+| Payments | Stripe Checkout only (Flutterwave removed). See README for env vars. |
 | `confirm-redirect` | Was called from the client after redirect payments but **was not implemented** until this PR |
 
 ### Likely root cause of “payment not working”

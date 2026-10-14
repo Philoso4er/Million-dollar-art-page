@@ -18,3 +18,13 @@ View your app in AI Studio: https://ai.studio/apps/drive/1UpM14YE3PCgE3aY_Xx9KW_
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Payments (Stripe Checkout only)
+
+Vercel env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `ADMIN_PASSWORD`, optional `SITE_URL` (e.g. https://pixelartgrid.vercel.app).
+No publishable key is needed (hosted Checkout redirect).
+
+Stripe webhook endpoint: `https://<domain>/api/stripe-webhook` with events
+`checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+`checkout.session.async_payment_failed`, `checkout.session.expired`.
